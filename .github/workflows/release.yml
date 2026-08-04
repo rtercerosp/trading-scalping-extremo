@@ -1,0 +1,89 @@
+name: Build Release ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (ej: v9.1.0)'
+        required: true
+        default: 'v9.1.0'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Create Release ZIP
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $excludeDirs = @('.venv', '__pycache__', '.git', 'versions', '.github')
+          $excludeFiles = @('*.zip', '*.rar', '*.7z', '*.pyc', '*.log', '*.tmp')
+          
+          $files = @()
+          Get-ChildItem -File | Where-Object { 
+            $skip = $false
+            foreach ($pattern in $excludeFiles) {
+              if ($_.Name -like $pattern) { $skip = $true; break }
+            }
+            if (-not $skip) { $files += $_.FullName }
+          }
+          
+          Get-ChildItem -Directory | Where-Object { 
+            $_.Name -notin $excludeDirs 
+          } | ForEach-Object { $files += $_.FullName }
+          
+          $zipName = "V9_SCALPING_MAX_QUALITY.zip"
+          if (Test-Path $zipName) { Remove-Item $zipName -Force }
+          Compress-Archive -Path $files -DestinationPath $zipName -Force
+          Write-Host "ZIP created: $zipName ($((Get-Item $zipName).Length / 1KB) KB)"
+
+      - name: Generate checksums
+        run: |
+          $zipName = "V9_SCALPING_MAX_QUALITY.zip"
+          $hash = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash
+          $hash | Out-File -FilePath "$zipName.sha256" -Encoding utf8
+          Write-Host "SHA256: $hash"
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            V9_SCALPING_MAX_QUALITY.zip
+            V9_SCALPING_MAX_QUALITY.zip.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify success
+        run: echo "Release V9_SCALPING_MAX_QUALITY built and published successfully."
