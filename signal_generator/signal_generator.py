@@ -69,6 +69,7 @@ class SignalGenerator(ISignalGenerator):
         self.portfolio = portfolio
         self.order_executor = order_executor
         self.trading_brain = trading_brain
+        self.connector = connector
 
         self.strategies: list[ISignalGenerator] = []
         self.asset_strategies: dict[str, list[ISignalGenerator]] = {}
