@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+.venv310/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs y temporales
+*.log
+*.tmp
+*.temp
+trade_history.json
+trade_history.json.backup
+version_report_*.json
+
+# Archivos de configuración local
+.env
+.env.local
+.env.*.local
+
+# MT5 / plataforma
+*.exe
+*.dll
+config/mt5.ini
+
+# Datos sensibles / credenciales
+ai/expert_rules.json
+ai/backtest_results.json
+ai/learning_params.json
+ai/strategy_scores.json
+ai/*/strategy_scores.json
+ai/*/learning_params.json
+trading_method_versions.json
+trading_method_measurements.json
+
+# Archivos comprimidos de release
+*.zip
+*.rar
+*.7z
+
+# Sistema operativo
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Jupyter
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json

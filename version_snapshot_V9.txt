@@ -1,0 +1,30 @@
+V9_SCALPING_MAX_QUALITY
+Fecha: 2026-08-04T12:02:13-04:00
+Autor: Kilo
+Descripcion: Refactorizacion completa orientada a maxima calidad de trade, explicabilidad y proteccion de cuenta. Circuit breaker, score de calidad por senal, filtro de riesgo dinamico, seleccion de estrategia por score compuesto, nomenclatura PEP8, manejo de errores robusto.
+Pruebas: 19/19 OK
+Compilacion: 0 errores
+Archivos modificados: 17
+Bugs criticos corregidos: 4
+Archivos clave:
+- brain/models.py
+- brain/trade_history_manager.py
+- brain/performance_tracker.py
+- brain/trading_brain.py
+- trading_director/trading_director.py
+- signal_generator/signal_generator.py
+- events/events.py
+- data_provider/data_provider.py
+- order_executor/order_executor.py
+- order_executor/break_even_manager.py
+- position_sizer/position_sizer.py
+- risk_manager/risk_manager.py
+- signal_generator/signals/signal_trend_pullback.py
+- signal_generator/signals/signal_smart_money_btc.py
+- signal_generator/signals/signal_smart_money_eth.py
+- signal_generator/signals/signal_smart_money_eurusd.py
+- news/news_protection.py
+- tests/test_trend_pullback_strategy.py
+- tests/test_refactoring.py
+- ai/__init__.py
+Informe: V9_SCALPING_MAX_QUALITY_REPORT.md

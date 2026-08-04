@@ -1,0 +1,4 @@
+Copiar v4.1.0_portable a una ruta corta del equipo destino
+Ejecutar portable_install.bat.
+Copiar .env.example a .env y completar credenciales.
+Ejecutar portable_run.bat.

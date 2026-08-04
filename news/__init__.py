@@ -1,0 +1,1 @@
+from .news_protection import NewsProtection

@@ -1,0 +1,30 @@
+[
+  {
+    "time": "2026-08-04T12:30:00",
+    "impact": "HIGH",
+    "name": "US CPI (fallback)",
+    "currency": "USD",
+    "affects": ["ALL"]
+  },
+  {
+    "time": "2026-08-04T20:00:00",
+    "impact": "HIGH",
+    "name": "US Fed Rate Decision (fallback)",
+    "currency": "USD",
+    "affects": ["ALL"]
+  },
+  {
+    "time": "2026-08-05T10:00:00",
+    "impact": "HIGH",
+    "name": "ECB Rate Decision (fallback)",
+    "currency": "EUR",
+    "affects": ["EURUSD"]
+  },
+  {
+    "time": "2026-08-05T14:00:00",
+    "impact": "MEDIUM",
+    "name": "US Retail Sales (fallback)",
+    "currency": "USD",
+    "affects": ["ALL"]
+  }
+]

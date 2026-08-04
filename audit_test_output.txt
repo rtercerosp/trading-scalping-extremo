@@ -1,0 +1,55 @@
+﻿python : test_break_even_manager_tolerates_none_positions 
+(test_priority_fixes.TestPriorityFixes.test_break_even_manager_tolerates_none_positions) ... ok
+En línea: 4 Carácter: 1
++ python -m unittest discover -s tests -v 2>&1 | Out-File -Encoding utf ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_break_even...sitions) ... ok:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+test_data_provider_invalid_timeframe_returns_empty 
+(test_priority_fixes.TestPriorityFixes.test_data_provider_invalid_timeframe_returns_empty) ... ok
+test_learning_engine_uses_normalized_symbol_key 
+(test_priority_fixes.TestPriorityFixes.test_learning_engine_uses_normalized_symbol_key) ... ok
+test_portfolio_handles_none_positions (test_priority_fixes.TestPriorityFixes.test_portfolio_handles_none_positions) 
+... ok
+test_portfolio_normalizes_symbol_limits 
+(test_priority_fixes.TestPriorityFixes.test_portfolio_normalizes_symbol_limits) ... ok
+test_rsi_returns_100_when_there_are_no_losses 
+(test_priority_fixes.TestPriorityFixes.test_rsi_returns_100_when_there_are_no_losses) ... ok
+test_rsi_returns_50_when_prices_are_flat 
+(test_priority_fixes.TestPriorityFixes.test_rsi_returns_50_when_prices_are_flat) ... ok
+test_strategy_selector_uses_normalized_symbol_key 
+(test_priority_fixes.TestPriorityFixes.test_strategy_selector_uses_normalized_symbol_key) ... ok
+test_symbol_normalization_supports_broker_suffixes 
+(test_priority_fixes.TestPriorityFixes.test_symbol_normalization_supports_broker_suffixes) ... ok
+test_telegram_properties_allow_missing_credentials 
+(test_priority_fixes.TestPriorityFixes.test_telegram_properties_allow_missing_credentials) ... ok
+test_normalize_symbol (test_refactoring.TestPerformanceTracker.test_normalize_symbol) ... ok
+test_update_asset_performance (test_refactoring.TestPerformanceTracker.test_update_asset_performance) ... ok
+test_update_strategy_performance (test_refactoring.TestPerformanceTracker.test_update_strategy_performance) ... ok
+test_can_open_position_respects_limits (test_refactoring.TestPortfolioLimits.test_can_open_position_respects_limits) 
+... ok
+test_add_and_get_open_trade (test_refactoring.TestTradeHistoryManager.test_add_and_get_open_trade) ... ok
+test_mark_trade_closed (test_refactoring.TestTradeHistoryManager.test_mark_trade_closed) ... ok
+test_persists_to_disk (test_refactoring.TestTradeHistoryManager.test_persists_to_disk) ... ok
+test_generates_buy_signal_when_all_long_conditions_align 
+(test_trend_pullback_strategy.TestTrendPullbackStrategy.test_generates_buy_signal_when_all_long_conditions_align) ... 
+FAIL
+test_returns_none_when_trend_filter_is_bearish_for_long_case 
+(test_trend_pullback_strategy.TestTrendPullbackStrategy.test_returns_none_when_trend_filter_is_bearish_for_long_case) 
+... ok
+
+======================================================================
+FAIL: test_generates_buy_signal_when_all_long_conditions_align 
+(test_trend_pullback_strategy.TestTrendPullbackStrategy.test_generates_buy_signal_when_all_long_conditions_align)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\TRADING SCARLPING EXTR\tests\test_trend_pullback_strategy.py", line 88, in 
+test_generates_buy_signal_when_all_long_conditions_align
+    self.assertIsNotNone(signal)
+AssertionError: unexpectedly None
+
+----------------------------------------------------------------------
+Ran 19 tests in 0.045s
+
+FAILED (failures=1)
