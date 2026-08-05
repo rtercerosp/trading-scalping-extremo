@@ -474,11 +474,11 @@ class SignalGenerator(ISignalGenerator):
 
         quality_threshold = 75.0 if config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY" else 60.0
         if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
-            quality_threshold = 70.0
+            quality_threshold = 60.0
         buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
         sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 
-        consensus_threshold = 1 if config.STRATEGY_VERSION == "V8_EXTREME_SCALPING" else 2
+        consensus_threshold = 1 if config.STRATEGY_VERSION in ("V8_EXTREME_SCALPING", "V10_ZERO_LOSS_SCALPING") else 2
 
         logging.info("SIGNAL GENERATOR: consensus buy=%d sell=%d threshold=%d symbol=%s", len(buy_signals), len(sell_signals), consensus_threshold, data_event.symbol)
 

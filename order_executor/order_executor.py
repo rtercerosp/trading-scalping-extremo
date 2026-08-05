@@ -11,6 +11,7 @@ from queue import Queue
 import MetaTrader5 as mt5
 import time
 from datetime import datetime
+import config
 
 class OrderExecutor():
 
@@ -140,10 +141,14 @@ class OrderExecutor():
                 volume = symbol_info.volume_min
 
         if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
-            spread_filter_multiplier = getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5)
+            symbol_key = normalize_symbol(order_event.symbol)
+            spread_cfg = getattr(config, "V10_SPREAD_FILTER_BY_SYMBOL", {}).get(symbol_key, {})
+            spread_filter_multiplier = spread_cfg.get("multiplier", getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5))
+            min_broker_coverage_points = spread_cfg.get("min_broker_coverage_points", getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2))
             if symbol_info and hasattr(symbol_info, 'ask') and hasattr(symbol_info, 'bid'):
                 spread = symbol_info.ask - symbol_info.bid
-                max_spread = spread_filter_multiplier * getattr(symbol_info, 'trade_stops_level', 0) * symbol_info.point
+                raw_max = spread_filter_multiplier * max(getattr(symbol_info, 'trade_stops_level', 0), min_broker_coverage_points) * symbol_info.point
+                max_spread = max(raw_max, min_broker_coverage_points * symbol_info.point)
                 if spread > max_spread:
                     print(f"{Utils.dateprint()} - ORD EXEC: Spread filter V10 rechaza {order_event.symbol} spread={spread:.5f} max={max_spread:.5f}")
                     return
@@ -195,7 +200,7 @@ class OrderExecutor():
         if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
             if result.retcode == mt5.TRADE_RETCODE_INVALID_STOPS and (sl != 0.0 or tp != 0.0):
                 min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
-                from utils.symbol_utils import get_asset_category, normalize_symbol
+                from utils.symbol_utils import get_asset_category
                 asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
                 if asset_cat == "crypto":
                     min_stops = max(min_stops, int(price * 0.0005 / symbol_info.point) if symbol_info.point > 0 else 5000)

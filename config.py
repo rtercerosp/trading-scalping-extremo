@@ -113,6 +113,18 @@ V10_COMPOUNDING_MIN_EQUITY: float = 5000.0
 V10_SPREAD_MAX_POINTS_MULTIPLIER: float = 1.5
 V10_MIN_BROKER_COVERAGE_POINTS: int = 2
 V10_MAX_VOLUME_PER_CANDLE_RATIO: float = 0.05
+V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
+    "EURUSD": {"min_broker_coverage_points": 8, "multiplier": 2.0},
+    "EURUSDc": {"min_broker_coverage_points": 8, "multiplier": 2.0},
+    "GBPUSD": {"min_broker_coverage_points": 10, "multiplier": 2.0},
+    "GBPUSDc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
+    "USDJPY": {"min_broker_coverage_points": 10, "multiplier": 2.0},
+    "USDJPYc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
+    "XAUUSD": {"min_broker_coverage_points": 240, "multiplier": 1.5},
+    "XAUUSDc": {"min_broker_coverage_points": 240, "multiplier": 1.5},
+    "ETHUSD": {"min_broker_coverage_points": 100, "multiplier": 1.5},
+    "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 1.5},
+}
 
 # --- 6c. CONFIGURACIÓN DE ESTRATEGIA FIBONACCI SCALP ---
 FIB_SCALP_MIN_CONFIDENCE: float = 0.65
