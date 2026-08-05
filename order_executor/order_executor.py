@@ -139,6 +139,15 @@ class OrderExecutor():
             if volume < symbol_info.volume_min:
                 volume = symbol_info.volume_min
 
+        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+            spread_filter_multiplier = getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5)
+            if symbol_info and hasattr(symbol_info, 'ask') and hasattr(symbol_info, 'bid'):
+                spread = symbol_info.ask - symbol_info.bid
+                max_spread = spread_filter_multiplier * getattr(symbol_info, 'trade_stops_level', 0) * symbol_info.point
+                if spread > max_spread:
+                    print(f"{Utils.dateprint()} - ORD EXEC: Spread filter V10 rechaza {order_event.symbol} spread={spread:.5f} max={max_spread:.5f}")
+                    return
+
         sl = order_event.sl
         tp = order_event.tp
         comment = "FWK Market Order"

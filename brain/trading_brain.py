@@ -221,6 +221,23 @@ class TradingBrain:
         
         return result
 
+    def get_zero_loss_params(self, symbol: str) -> dict:
+        defaults = {
+            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.50),
+            "break_even_buffer_points": getattr(config, "V10_BREAK_EVEN_BUFFER_POINTS", 2),
+            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.30),
+            "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+            "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.25),
+            "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
+            "trailing_aggressive_offset_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_PCT", 0.0015),
+            "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+            "compounding_min_equity": getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0),
+            "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
+            "min_broker_coverage_points": getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2),
+            "max_volume_per_candle_ratio": getattr(config, "V10_MAX_VOLUME_PER_CANDLE_RATIO", 0.05),
+        }
+        return defaults
+
     def record_execution(self, execution_event: ExecutionEvent) -> None:
         if not self.brain_enabled:
             return
@@ -295,6 +312,13 @@ class TradingBrain:
             try:
                 sl_hit = exit_reason == "SL"
                 tp_hit = exit_reason in ("TP", "TP1", "TP2")
+                if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+                    if profit < 0:
+                        sl_hit = True
+                        tp_hit = False
+                    elif profit > 0 and exit_reason in ("BREAK_EVEN", "REVERSE_PROTECTION"):
+                        tp_hit = True
+                        sl_hit = False
                 self.ai.learn_from_trade(symbol, strategy, profit, sl_hit, tp_hit)
             except Exception as e:
                 logging.error("BRAIN: Error en aprendizaje AI para %s: %s", symbol, e, exc_info=True)
@@ -519,6 +543,8 @@ class TradingBrain:
                 win_rate = stats.get("win_rate", 0.0)
                 profit_factor = stats.get("gross_profit", 0.0) / stats.get("gross_loss", 0.0) if stats.get("gross_loss", 0.0) > 0 else (float('inf') if stats.get("gross_profit", 0.0) > 0 else 0.0)
                 profit = stats.get("profit", 0.0)
+                if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+                    return win_rate * 0.6 + min(profit_factor, 4.0) * 0.3 + min(trades / 50.0, 1.0) * 0.1
                 return win_rate * 0.4 + min(profit_factor, 3.0) * 0.3 + min(trades / 50.0, 1.0) * 0.3
 
             ranked = sorted(strat_perf.items(), key=strategy_score, reverse=True)

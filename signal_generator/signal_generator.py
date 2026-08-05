@@ -362,6 +362,18 @@ class SignalGenerator(ISignalGenerator):
             if atr_points > 0 and spread_points > atr_points * atr_threshold:
                 return False
 
+            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+                gap_protection_pct = getattr(config, "V10_GAP_PROTECTION_PCT", 0.003)
+                bars = self.data_provider.get_latest_closed_bars(symbol, "1min", 5)
+                if bars is not None and not bars.empty and len(bars) >= 2:
+                    last_open = bars['open'].iloc[-1]
+                    prev_close = bars['close'].iloc[-2]
+                    if last_open > 0 and prev_close > 0:
+                        gap = abs(last_open - prev_close) / prev_close
+                        if gap > gap_protection_pct:
+                            logger.debug("SIGNAL GENERATOR: Gap protection rechaza %s gap=%.4f", symbol, gap)
+                            return False
+
             return True
         except Exception as e:
             logger.debug("SIGNAL GENERATOR: Error evaluando viabilidad para %s: %s", symbol, e, exc_info=True)
@@ -461,6 +473,8 @@ class SignalGenerator(ISignalGenerator):
         sell_signals = [(s, se) for s, se in signal_candidates if se.signal == "SELL"]
 
         quality_threshold = 75.0 if config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY" else 60.0
+        if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+            quality_threshold = 70.0
         buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
         sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 
@@ -478,6 +492,8 @@ class SignalGenerator(ISignalGenerator):
                 "quality_score": signal_event.quality_score,
                 "justification": signal_event.justification,
             })
+            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+                enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
             logging.info("SIGNAL GENERATOR: Señal BUY final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
             self.events_queue.put(enriched_event)
         elif len(sell_signals) >= consensus_threshold and len(sell_signals) >= len(buy_signals):
@@ -490,7 +506,28 @@ class SignalGenerator(ISignalGenerator):
                 "quality_score": signal_event.quality_score,
                 "justification": signal_event.justification,
             })
+            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+                enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
             logging.info("SIGNAL GENERATOR: Señal SELL final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
             self.events_queue.put(enriched_event)
         else:
             logging.info("SIGNAL GENERATOR: Sin consenso para %s (buy=%d sell=%d)", data_event.symbol, len(buy_signals), len(sell_signals))
+
+    def _apply_compounding_bonus(self, symbol: str, signal_event) -> object:
+        try:
+            if getattr(config, "STRATEGY_VERSION", "") != "V10_ZERO_LOSS_SCALPING":
+                return signal_event
+            params = getattr(config, "V10_ZERO_LOSS_PARAMS", {})
+            multiplier = params.get("compounding_volume_multiplier", getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0))
+            min_equity = params.get("compounding_min_equity", getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0))
+            if multiplier <= 1.0:
+                return signal_event
+            account_info = self.connector.get_account_info() if self.connector else None
+            equity = getattr(account_info, 'equity', 0.0) if account_info else 0.0
+            if equity < min_equity:
+                return signal_event
+            if hasattr(signal_event, 'volume') and signal_event.volume > 0:
+                signal_event.volume = round(signal_event.volume * multiplier, 2)
+        except Exception as e:
+            logging.error("SIGNAL GENERATOR: Error aplicando compounding bonus para %s: %s", symbol, e, exc_info=True)
+        return signal_event

@@ -264,7 +264,40 @@ if __name__ == "__main__":
                 "circuit_breaker_max_consecutive_losses": 3, # Valor hardcodeado en TradingBrain
             },
             "Versión V9 con refactorización completa para máxima calidad de trade, explicabilidad y protección de cuenta. Incluye score de calidad de señal, justificación legible, circuit breaker, filtro de riesgo dinámico y mejoras de código.",
-            set_active=True, # Set V9 as the active version
+            set_active=False,
+        )
+        trading_brain.register_current_version(
+            "V10_ZERO_LOSS_SCALPING",
+            "Scalping Extremo V10 Zero Loss",
+            {
+                "timeframe": config.ENTRY_TIMEFRAME,
+                "trend_timeframe": config.TREND_TIMEFRAME,
+                "risk_pct": config.SIZER_DEFAULT_RISK_PCT,
+                "max_leverage_factor": config.RISK_MAX_LEVERAGE_FACTOR,
+                "sl_atr_mult": config.LEARNING_DEFAULT_SL_ATR_MULT,
+                "tp_atr_mult": config.LEARNING_DEFAULT_TP_ATR_MULT,
+                "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
+                "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
+                "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+                "strategy": "V10_ZERO_LOSS_SCALPING",
+                "ai_enabled": True,
+                "ai_features": [
+                    "market_regime_detection", "strategy_selection", "per_asset_learning", "fibonacci_scalping",
+                    "adaptive_trailing", "news_aware_trading", "aggressive_tp", "early_trailing",
+                    "zero_loss_breakeven", "reverse_protection", "gap_protection", "compounding_bonus",
+                    "spread_filter", "maximize_profit_objective", "broker_cost_coverage",
+                ],
+                "circuit_breaker_daily_loss_pct_limit": 0.02,
+                "circuit_breaker_max_consecutive_losses": 3,
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.50),
+                "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.30),
+                "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+                "trailing_aggressive_offset_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_PCT", 0.0015),
+                "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+                "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
+            },
+            "Version V10 Zero Loss. Break-even al 50% del TP con reverse protection 30%, gap protection, pre-breakeven limitada al SL inicial, trailing agresivo, compounding bonus volumen 2x, spread filter, entrenamiento IA orientado a cero perdidas y maxima ganancia.",
+            set_active=True,
         )
 
     trading_director: TradingDirector = TradingDirector(
@@ -325,10 +358,9 @@ if __name__ == "__main__":
             },
             "Version optimizada con modo scalping extremo. Incluye estrategia Fibonacci, TP agresivos, trailing ultra-early, exclusion de perdedores. (Informe de V8)",
         )
-        # Save report for V9_SCALPING_MAX_QUALITY
         trading_brain.save_version_report(
-            "V9_SCALPING_MAX_QUALITY",
-            "Scalping Extremo V9 Max Quality",
+            "V10_ZERO_LOSS_SCALPING",
+            "Scalping Extremo V10 Zero Loss",
             {
                 "timeframe": config.ENTRY_TIMEFRAME,
                 "trend_timeframe": config.TREND_TIMEFRAME,
@@ -339,17 +371,24 @@ if __name__ == "__main__":
                 "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
                 "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
                 "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
-                "strategy": "V9_SCALPING_MAX_QUALITY",
+                "strategy": "V10_ZERO_LOSS_SCALPING",
                 "ai_enabled": True,
                 "ai_features": [
                     "market_regime_detection", "strategy_selection", "per_asset_learning", "fibonacci_scalping",
                     "adaptive_trailing", "news_aware_trading", "aggressive_tp", "early_trailing",
-                    "signal_quality_scoring", "signal_justification", "circuit_breaker", "dynamic_risk_filtering",
+                    "zero_loss_breakeven", "reverse_protection", "gap_protection", "compounding_bonus",
+                    "spread_filter", "maximize_profit_objective", "broker_cost_coverage",
                 ],
                 "circuit_breaker_daily_loss_pct_limit": 0.02,
                 "circuit_breaker_max_consecutive_losses": 3,
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.50),
+                "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.30),
+                "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+                "trailing_aggressive_offset_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_PCT", 0.0015),
+                "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+                "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
-            "Versión V9 con refactorización completa para máxima calidad de trade, explicabilidad y protección de cuenta. Incluye score de calidad de señal, justificación legible, circuit breaker, filtro de riesgo dinámico y mejoras de código. (Informe de V9)",
+            "Version V10 Zero Loss. Break-even al 50% del TP con reverse protection 30%, gap protection, pre-breakeven limitada al SL inicial, trailing agresivo, compounding bonus volumen 2x, spread filter, entrenamiento IA orientado a cero perdidas y maxima ganancia.",
         )
 
         try:
