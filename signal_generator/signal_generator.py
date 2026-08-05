@@ -474,7 +474,7 @@ class SignalGenerator(ISignalGenerator):
 
         quality_threshold = 75.0 if config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY" else 60.0
         if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
-            quality_threshold = 60.0
+            quality_threshold = 75.0
         buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
         sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 

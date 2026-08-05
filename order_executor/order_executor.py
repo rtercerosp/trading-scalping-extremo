@@ -104,6 +104,16 @@ class OrderExecutor():
         
         sl_distance_points = max(sl_distance_points, min_stop_points)
         tp_distance_points = max(tp_distance_points, min_stop_points)
+
+        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+            min_tp_multiplier = 2.0
+            if asset_cat == "gold":
+                min_tp_multiplier = 2.5
+            elif asset_cat == "crypto":
+                min_tp_multiplier = 2.0
+            min_tp_points = sl_distance_points * min_tp_multiplier
+            if tp_distance_points < min_tp_points:
+                tp_distance_points = min_tp_points
         
         if signal == "BUY":
             sl = price - sl_distance_points * point
