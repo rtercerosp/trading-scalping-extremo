@@ -325,8 +325,6 @@ class TradingDirector():
                 except Exception as e:
                     print(f"{Utils.dateprint()} - TRADING DIRECTOR: Error verificando posición {event.position_ticket}: {e}")
 
-            tp1 = getattr(event, 'tp1', 0.0)
-            tp2 = getattr(event, 'tp2', 0.0)
             initial_sl = getattr(event, 'initial_sl', 0.0)
             self.break_even_manager.add_position_to_monitor(
                 event.position_ticket,
@@ -334,11 +332,8 @@ class TradingDirector():
                 event.entry_price,
                 event.initial_tp,
                 event.signal,
-                tp1=tp1,
-                tp2=tp2
+                initial_sl=initial_sl,
             )
-            if self.break_even_manager.positions_to_monitor.get(event.position_ticket):
-                self.break_even_manager.positions_to_monitor[event.position_ticket]['initial_sl'] = initial_sl
         if self.trading_brain:
             self.trading_brain.record_execution(event)
         self._process_execution_or_pending_events(event)
