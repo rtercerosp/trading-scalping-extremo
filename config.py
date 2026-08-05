@@ -108,25 +108,37 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
 
 # --- 6b-II. CONFIGURACIÓN V10 ZERO LOSS SCALPING ---
 V10_ZERO_LOSS_ENABLED: bool = True
-V10_BREAK_EVEN_TRIGGER_PCT: float = 0.50
+V10_BREAK_EVEN_TRIGGER_PCT: float = 0.30
 V10_BREAK_EVEN_BUFFER_POINTS: int = 2
 V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL: dict[str, int] = {
-    "EURUSD": 30,
-    "EURUSDc": 30,
-    "GBPUSD": 35,
-    "GBPUSDc": 35,
-    "USDJPY": 300,
-    "USDJPYc": 300,
-    "XAUUSD": 300,
-    "XAUUSDc": 300,
-    "ETHUSD": 150,
-    "ETHUSDc": 150,
+    "EURUSD": 20,
+    "EURUSDc": 20,
+    "GBPUSD": 25,
+    "GBPUSDc": 25,
+    "USDJPY": 200,
+    "USDJPYc": 200,
+    "XAUUSD": 200,
+    "XAUUSDc": 200,
+    "ETHUSD": 100,
+    "ETHUSDc": 100,
 }
-V10_REVERSE_PROTECTION_PCT: float = 0.30
+V10_BROKER_COST_COVERAGE: dict[str, dict] = {
+    "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
+    "EURUSDc": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
+    "GBPUSD": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 4},
+    "GBPUSDc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 4},
+    "USDJPY": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
+    "USDJPYc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
+    "XAUUSD": {"spread_points": 240, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "XAUUSDc": {"spread_points": 240, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "ETHUSD": {"spread_points": 100, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "ETHUSDc": {"spread_points": 100, "commission_per_lot": 0.0, "min_profit_points": 30},
+}
+V10_REVERSE_PROTECTION_PCT: float = 0.25
 V10_GAP_PROTECTION_PCT: float = 0.003
-V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT: float = 0.25
-V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT: float = 0.003
-V10_TRAILING_AGGRESSIVE_OFFSET_PCT: float = 0.0015
+V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT: float = 0.20
+V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT: float = 0.002
+V10_TRAILING_AGGRESSIVE_OFFSET_PCT: float = 0.001
 V10_COMPOUNDING_VOLUME_MULTIPLIER: float = 2.0
 V10_COMPOUNDING_MIN_EQUITY: float = 5000.0
 V10_SPREAD_MAX_POINTS_MULTIPLIER: float = 1.5

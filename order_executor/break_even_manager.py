@@ -42,14 +42,15 @@ class BreakEvenManager:
         from utils.symbol_utils import normalize_symbol
         symbol_key = normalize_symbol(symbol)
         defaults = {
-            "break_even_trigger_pct": 0.50,
+            "break_even_trigger_pct": 0.30,
             "break_even_buffer_points": 2,
             "break_even_trigger_points": getattr(config, "V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL", {}).get(symbol_key, 0),
-            "reverse_protection_pct": 0.30,
+            "broker_cost_coverage": getattr(config, "V10_BROKER_COST_COVERAGE", {}).get(symbol_key, {"spread_points": 0, "commission_per_lot": 0.0, "min_profit_points": 0}),
+            "reverse_protection_pct": 0.25,
             "gap_protection_pct": 0.003,
-            "pre_breakeven_max_sl_improvement_pct": 0.25,
-            "trailing_aggressive_activation_pct": 0.003,
-            "trailing_aggressive_offset_pct": 0.0015,
+            "pre_breakeven_max_sl_improvement_pct": 0.20,
+            "trailing_aggressive_activation_pct": 0.002,
+            "trailing_aggressive_offset_pct": 0.001,
             "compounding_volume_multiplier": 2.0,
             "compounding_min_equity": 5000.0,
             "spread_max_points_multiplier": 1.5,
@@ -68,6 +69,29 @@ class BreakEvenManager:
             if params.get("enabled", True):
                 return params.get("trailing_activation_pct", self._trailing_activation_pct), params.get("trailing_offset_pct", self._trailing_offset_pct)
         return self._trailing_activation_pct, self._trailing_offset_pct
+
+    def _calculate_breakeven_sl(self, symbol: str, entry_price: float, signal_type: SignalType, volume: float, point: float) -> float:
+        params = self._get_zero_loss_params(symbol)
+        broker_cost = params.get("broker_cost_coverage", {})
+        spread_pts = broker_cost.get("spread_points", 0)
+        commission_per_lot = broker_cost.get("commission_per_lot", 0.0)
+        min_profit_pts = broker_cost.get("min_profit_points", 0)
+        buffer_pts = params.get("break_even_buffer_points", 2)
+        
+        total_cost_pts = spread_pts + min_profit_pts + buffer_pts
+        
+        if commission_per_lot > 0 and volume > 0:
+            symbol_info = self.connector.get_symbol_info(symbol)
+            if symbol_info:
+                tick_value = getattr(symbol_info, 'trade_tick_value', 0.0)
+                if tick_value > 0:
+                    commission_pts = (commission_per_lot * volume) / (tick_value * volume)
+                    total_cost_pts += commission_pts
+        
+        if signal_type == SignalType.BUY:
+            return entry_price + (total_cost_pts * point)
+        else:
+            return entry_price - (total_cost_pts * point)
 
     def add_position_to_monitor(self, position_ticket: int, symbol: str, entry_price: float, initial_tp: float, signal_type: SignalType, initial_sl: float = 0.0) -> None:
         if initial_tp <= 0:
@@ -90,12 +114,13 @@ class BreakEvenManager:
             'breakeven_triggered': False,
             'breakeven_trigger_price': 0.0,
             'reverse_protection_triggered': False,
+            'pre_breakeven_active': False,
             'last_gap': 0.0,
             '_last_log_ts': 0.0,
             '_zero_loss_params': params,
         }
 
-        print(f"{Utils.dateprint()} - BREAK EVEN MGR: Posición {position_ticket} ({symbol}) añadida para monitoreo V10. TP: {initial_tp}, SL inicial: {initial_sl}")
+        print(f"{Utils.dateprint()} - BREAK EVEN MGR: Posición {position_ticket} ({symbol}) añadida para monitoreo V10 ZERO LOSS. TP: {initial_tp}, SL inicial: {initial_sl}")
 
     def resume_open_positions(self, magic_number: int) -> None:
         positions = self.connector.get_positions() or ()
@@ -123,7 +148,7 @@ class BreakEvenManager:
             resumed += 1
 
         if resumed > 0:
-            print(f"{Utils.dateprint()} - BREAK EVEN MGR: Reanudados {resumed} posiciones abiertas para monitoreo V10.")
+            print(f"{Utils.dateprint()} - BREAK EVEN MGR: Reanudados {resumed} posiciones abiertas para monitoreo V10 ZERO LOSS.")
         else:
             print(f"{Utils.dateprint()} - BREAK EVEN MGR: No hay posiciones abiertas para reanudar.")
 
@@ -148,15 +173,13 @@ class BreakEvenManager:
                 tickets_to_remove.append(position_ticket)
                 continue
 
-            if details['sl_moved_to_breakeven']:
-                continue
-
             symbol = details['symbol']
             entry_price = details['entry_price']
             initial_tp = details['initial_tp']
             initial_sl = details['initial_sl']
             signal_type = details['signal_type']
             params = details.get('_zero_loss_params', {})
+            current_sl = details.get('current_sl', initial_sl)
 
             latest_tick = self.data_provider.get_latest_tick(symbol)
             if not latest_tick:
@@ -173,40 +196,25 @@ class BreakEvenManager:
             gap = self._detect_gap(symbol, current_price, signal_type)
             details['last_gap'] = gap
             if gap > gap_protection_pct:
-                now = time.time()
-                last_log_ts = details.get('_last_log_ts', 0.0)
-                if now - last_log_ts > 10:
-                    print(f"{Utils.dateprint()} - BREAK EVEN MGR: GAP PROTECTION V10 activado para {symbol} ticket={position_ticket} gap={gap:.4f}")
-                    details['_last_log_ts'] = now
+                print(f"{Utils.dateprint()} - BREAK EVEN MGR: GAP PROTECTION V10 activado para {symbol} ticket={position_ticket} gap={gap:.4f}")
                 continue
 
-            dist_to_tp1 = None
-            dist_to_sl = None
             try:
                 if signal_type == SignalType.BUY:
-                    dist_to_tp1 = (initial_tp - current_price) / point
-                    dist_to_sl = (current_price - entry_price) / point
+                    dist_to_tp = (initial_tp - current_price) / point
+                    dist_to_entry = (current_price - entry_price) / point
                 else:
-                    dist_to_tp1 = (current_price - initial_tp) / point
-                    dist_to_sl = (entry_price - current_price) / point
+                    dist_to_tp = (current_price - initial_tp) / point
+                    dist_to_entry = (entry_price - current_price) / point
             except Exception as e:
                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error calculando distancias para {symbol} ticket={position_ticket}: {e}")
+                continue
 
-            now = time.time()
-            last_log_ts = details.get('_last_log_ts', 0.0)
-            if dist_to_tp1 is not None and dist_to_sl is not None:
-                if abs(dist_to_tp1) > 5000 or abs(dist_to_sl) > 5000:
-                    if now - last_log_ts > 300:
-                        print(f"{Utils.dateprint()} - BREAK EVEN MGR: {symbol} ticket={position_ticket} type={signal_type} TP IRREAL detectado dist_to_tp1={dist_to_tp1:.1f}pts dist_to_sl={dist_to_sl:.1f}pts - No se monitoreará más")
-                        details['_last_log_ts'] = now
-                    tickets_to_remove.append(position_ticket)
-                    continue
+            if abs(dist_to_tp) > 5000 or abs(dist_to_entry) > 5000:
+                tickets_to_remove.append(position_ticket)
+                continue
 
-                if now - last_log_ts > 5:
-                    print(f"{Utils.dateprint()} - BREAK EVEN MGR: {symbol} ticket={position_ticket} type={signal_type} current={current_price} tp={initial_tp} dist_to_tp={dist_to_tp1:.1f}pts dist_to_sl={dist_to_sl:.1f}pts gap={gap:.4f}")
-                    details['_last_log_ts'] = now
-
-            breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.50)
+            breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.30)
             breakeven_trigger_points = params.get("break_even_trigger_points", 0)
             if initial_tp > 0:
                 total_tp_distance = abs(initial_tp - entry_price)
@@ -221,39 +229,61 @@ class BreakEvenManager:
                     breakeven_hit = (signal_type == SignalType.BUY and current_price >= breakeven_trigger_price) or (signal_type == SignalType.SELL and current_price <= breakeven_trigger_price)
                     if breakeven_hit and not details.get('breakeven_triggered'):
                         details['breakeven_triggered'] = True
-                        print(f"{Utils.dateprint()} - BREAK EVEN MGR: BREAK EVEN TRIGGER V10 alcanzado para {symbol} ticket={position_ticket} current={current_price} trigger={breakeven_trigger_price} pct={breakeven_trigger_pct:.0%}")
-
-                        buffer_points = params.get("break_even_buffer_points", 2)
-                        buffer = max(buffer_points * point, point)
-                        new_sl = entry_price + buffer if signal_type == SignalType.BUY else entry_price - buffer
-                        if signal_type == SignalType.BUY and new_sl >= current_price - buffer:
-                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} arriba del precio actual {current_price} para BUY {symbol}. Se salta el modify.")
-                        elif signal_type == SignalType.SELL and new_sl <= current_price + buffer:
-                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} abajo del precio actual {current_price} para SELL {symbol}. Se salta el modify.")
+                        position = next((p for p in current_open_positions if p.ticket == position_ticket), None)
+                        volume = position.volume if position else 0.01
+                        new_sl = self._calculate_breakeven_sl(symbol, entry_price, signal_type, volume, point)
+                        
+                        if signal_type == SignalType.BUY and new_sl >= current_price:
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} >= precio actual {current_price} para BUY {symbol}. Se salta.")
+                        elif signal_type == SignalType.SELL and new_sl <= current_price:
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} <= precio actual {current_price} para SELL {symbol}. Se salta.")
                         else:
                             try:
                                 self.order_executor.modify_position_sl(position_ticket, new_sl)
                                 details['current_sl'] = new_sl
                                 details['sl_moved_to_breakeven'] = True
-                                message = f"BREAK EVEN V10 activado en {position_ticket}: SL movido a {new_sl} (entry {entry_price} + buffer {buffer})"
+                                message = f"BREAK EVEN V10 ZERO LOSS activado en {position_ticket}: SL movido a {new_sl} (entry {entry_price} + costos broker)"
                                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
                                 self.notification_service.send_notification(
-                                    title=f"🛡️ BREAK-EVEN V10 - {symbol}",
+                                    title=f"🛡️ ZERO LOSS BREAK-EVEN - {symbol}",
                                     message=message
                                 )
                             except Exception as e:
                                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL a breakeven para {position_ticket}: {e}")
 
+                    if not details.get('breakeven_triggered') and dist_to_entry > 0:
+                        pre_breakeven_pct = params.get("pre_breakeven_max_sl_improvement_pct", 0.20)
+                        max_improvement = abs(initial_sl - entry_price) * pre_breakeven_pct if initial_sl != entry_price else 0
+                        if max_improvement > 0:
+                            if signal_type == SignalType.BUY:
+                                improved_sl = min(current_sl, entry_price + max_improvement)
+                                if improved_sl > current_sl:
+                                    try:
+                                        self.order_executor.modify_position_sl(position_ticket, improved_sl)
+                                        details['current_sl'] = improved_sl
+                                        details['pre_breakeven_active'] = True
+                                    except Exception:
+                                        pass
+                            else:
+                                improved_sl = max(current_sl, entry_price - max_improvement)
+                                if improved_sl < current_sl:
+                                    try:
+                                        self.order_executor.modify_position_sl(position_ticket, improved_sl)
+                                        details['current_sl'] = improved_sl
+                                        details['pre_breakeven_active'] = True
+                                    except Exception:
+                                        pass
+
             if details.get('breakeven_triggered') and not details.get('reverse_protection_triggered'):
-                reverse_protection_pct = params.get("reverse_protection_pct", 0.30)
+                reverse_protection_pct = params.get("reverse_protection_pct", 0.25)
                 breakeven_trigger_price = details.get('breakeven_trigger_price', entry_price)
                 if signal_type == SignalType.BUY:
-                    reverse_trigger = breakeven_trigger_price * (1.0 - reverse_protection_pct)
+                    reverse_trigger = breakeven_trigger_price - (breakeven_trigger_price - entry_price) * reverse_protection_pct
                     if current_price <= reverse_trigger:
                         details['reverse_protection_triggered'] = True
                         try:
                             self.order_executor.close_position_by_ticket(position_ticket, exit_reason="REVERSE_PROTECTION")
-                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde break-even trigger"
+                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde break-even"
                             print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
                             self.notification_service.send_notification(
                                 title=f"🛑 REVERSE PROTECTION - {symbol}",
@@ -262,12 +292,12 @@ class BreakEvenManager:
                         except Exception as e:
                             print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error cerrando posición por reverse protection {position_ticket}: {e}")
                 else:
-                    reverse_trigger = breakeven_trigger_price * (1.0 + reverse_protection_pct)
+                    reverse_trigger = breakeven_trigger_price + (entry_price - breakeven_trigger_price) * reverse_protection_pct
                     if current_price >= reverse_trigger:
                         details['reverse_protection_triggered'] = True
                         try:
                             self.order_executor.close_position_by_ticket(position_ticket, exit_reason="REVERSE_PROTECTION")
-                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde break-even trigger"
+                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde break-even"
                             print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
                             self.notification_service.send_notification(
                                 title=f"🛑 REVERSE PROTECTION - {symbol}",
@@ -277,14 +307,15 @@ class BreakEvenManager:
                             print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error cerrando posición por reverse protection {position_ticket}: {e}")
 
             if details.get('breakeven_triggered') and not details.get('reverse_protection_triggered'):
-                trailing_activation_pct, trailing_offset_pct = self._get_trailing_params(symbol)
-                aggressive_activation = params.get("trailing_aggressive_activation_pct", 0.003)
-                aggressive_offset = params.get("trailing_aggressive_offset_pct", 0.0015)
+                aggressive_activation = params.get("trailing_aggressive_activation_pct", 0.002)
+                aggressive_offset = params.get("trailing_aggressive_offset_pct", 0.001)
                 profit_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
                 if signal_type == SignalType.SELL:
                     profit_pct = -profit_pct
 
                 if profit_pct >= aggressive_activation:
+                    buffer_points = params.get("break_even_buffer_points", 2)
+                    buffer = max(buffer_points * point, point)
                     if signal_type == SignalType.BUY:
                         trailing_sl = current_price * (1.0 - aggressive_offset)
                         new_sl = max(details.get('current_sl', entry_price), trailing_sl)
