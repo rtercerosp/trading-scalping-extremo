@@ -42,11 +42,14 @@ class TradingDirector():
 
         self.continue_trading: bool = True
         self._last_weekend_close_date = None
+        self._last_circuit_breaker_reset_date = None
         self._market_status_cache: Dict[str, tuple] = {}
         self._market_status_cache_ttl: float = 2.0
         self._previous_market_open_state: Dict[str, bool] = {}
         self._last_institutional_report_ts: float = 0.0
         self._institutional_report_interval_seconds = 600
+        self._last_data_event_ts: float = 0.0
+        self._breakeven_check_interval: float = 1.0
 
         self.event_handler: Dict[str, Callable] = {
             "DATA": self._handle_data_event,
@@ -62,6 +65,15 @@ class TradingDirector():
 
     def _get_system_local_now(self) -> datetime:
         return datetime.now()
+
+    def _reset_daily_circuit_breaker_if_new_day(self) -> None:
+        if self.trading_brain is None:
+            return
+        now = self._get_system_local_now()
+        today = now.date()
+        if getattr(self, '_last_circuit_breaker_reset_date', None) != today:
+            self._last_circuit_breaker_reset_date = today
+            self.trading_brain.reset_daily_circuit_breaker()
 
     def _get_cached_market_status(self, symbol: str) -> dict:
         now_ts = time.time()
@@ -104,14 +116,17 @@ class TradingDirector():
         print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} permitido por fallback local={now}")
         return True
 
-    def _close_all_open_positions(self, asset_category: str = "forex") -> None:
+    def _close_all_open_positions(self, symbol: str | None = None, asset_category: str = "forex") -> None:
         positions = self.order_executor.PORTFOLIO.get_strategy_open_positions()
         closed = 0
         for position in positions:
             symbol_key = normalize_symbol(position.symbol)
-            position_category = getattr(self.signal_generator, '_get_asset_category', lambda s: "forex")(symbol_key)
-            if position_category != asset_category:
+            if symbol is not None and symbol_key != normalize_symbol(symbol):
                 continue
+            if symbol is None:
+                position_category = getattr(self.signal_generator, '_get_asset_category', lambda s: "forex")(symbol_key)
+                if position_category != asset_category:
+                    continue
             try:
                 self.order_executor.close_position_by_ticket(position.ticket)
                 closed += 1
@@ -120,7 +135,7 @@ class TradingDirector():
         if closed > 0:
             self.notification_service.send_notification(
                 title="🔴 CIERRE POR SUSPENSIÓN DE MERCADO",
-                message=f"Se cerraron {closed} posiciones de {asset_category} por cierre de mercado."
+                message=f"Se cerraron {closed} posiciones por cierre de mercado."
             )
 
         if self.portfolio:
@@ -184,31 +199,39 @@ class TradingDirector():
                 break
             try:
                 event = self.events_queue.get(block=False)
-            
             except queue.Empty:
-                if self.trading_brain:
-                    self.trading_brain.reset_daily_circuit_breaker()
+                self._reset_daily_circuit_breaker_if_new_day()
                 self._check_weekend_closure()
                 self._check_market_close_closure()
                 self.data_provider.check_for_new_data()
 
-                self.break_even_manager.check_for_tp_hit_and_move_sl()
+                now_ts = time.time()
+                if now_ts - self._last_data_event_ts >= self._breakeven_check_interval:
+                    self._last_data_event_ts = now_ts
+                    self.break_even_manager.check_for_tp_hit_and_move_sl()
 
                 if self.trading_brain:
                     self.trading_brain.scan_closed_positions(self.connector)
                     self.trading_brain.maybe_run_evaluation(label="periodic")
                     self._maybe_print_institutional_report()
-            
-            else:
-                if event is not None:
+                time.sleep(0.01)
+                iterations += 1
+                continue
+
+            if event is not None:
+                symbol_key = normalize_symbol(getattr(event, 'symbol', ''))
+                asset_category = getattr(self.signal_generator, '_get_asset_category', lambda s: "forex")(symbol_key)
+                if self._should_process_event_by_priority(symbol_key, asset_category):
                     handler = self.event_handler.get(event.event_type, self._handle_unknown_event)
                     handler(event)
                 else:
-                    self._handle_none_event(event)
+                    self.events_queue.put(event)
+                    time.sleep(0.05)
+            else:
+                self._handle_none_event(event)
 
             iterations += 1
-            time.sleep(0.001)
-        
+
         print(f"{Utils.dateprint()} - FIN")
 
     def _check_weekend_closure(self) -> None:
@@ -224,8 +247,7 @@ class TradingDirector():
                         market_status = self._get_cached_market_status(symbol_key)
                         if bool(market_status.get("open", True)):
                             continue
-                        asset_category = getattr(self.signal_generator, '_get_asset_category', lambda s: "forex")(symbol_key)
-                        self._close_all_open_positions(asset_category=asset_category)
+                        self._close_all_open_positions(symbol=symbol_key)
             return
 
         self._last_weekend_close_date = None
@@ -235,7 +257,7 @@ class TradingDirector():
             return
 
         symbols_to_check = list(self.signal_generator.asset_category_map.keys())
-        categories_to_close: set[str] = set()
+        symbols_to_close = []
 
         for symbol in symbols_to_check:
             symbol_key = normalize_symbol(symbol)
@@ -250,12 +272,10 @@ class TradingDirector():
             self._previous_market_open_state[symbol_key] = is_open_now
 
             if was_open and not is_open_now:
-                asset_category = getattr(self.signal_generator, '_get_asset_category', lambda s: "forex")(symbol_key)
-                if asset_category in {"gold", "forex"}:
-                    categories_to_close.add(asset_category)
+                symbols_to_close.append(symbol_key)
 
-        for category in categories_to_close:
-            self._close_all_open_positions(asset_category=category)
+        for symbol_key in symbols_to_close:
+            self._close_all_open_positions(symbol=symbol_key)
 
     def _handle_signal_event(self, event: SignalEvent):
         print(f"{Utils.dateprint()} - Recibido SIGNAL EVENT {event.signal} para {event.symbol}")
@@ -272,6 +292,16 @@ class TradingDirector():
             return
         self.position_sizer.size_signal(event)
 
+    def _should_process_event_by_priority(self, symbol_key: str, asset_category: str) -> bool:
+        if asset_category != "gold":
+            try:
+                queue_size = self.events_queue.qsize()
+                if queue_size > 20:
+                    return False
+            except Exception:
+                pass
+        return True
+
     def _handle_sizing_event(self, event: SizingEvent):
         print(f"{Utils.dateprint()} - Recibido SIZING EVENT con volumen {event.volume} para {event.signal} en {event.symbol}")
         self.risk_manager.assess_order(event)
@@ -283,6 +313,18 @@ class TradingDirector():
     def _handle_execution_event(self, event: ExecutionEvent):
         print(f"{Utils.dateprint()} - Recibido EXECUTION EVENT {event.signal} en {event.symbol} con volumen {event.volume} al precio {event.fill_price}")
         if hasattr(event, 'position_ticket') and event.position_ticket and hasattr(event, 'initial_tp') and event.initial_tp > 0 and hasattr(event, 'initial_sl') and event.initial_sl != event.entry_price:
+            if self.connector is not None:
+                try:
+                    open_positions = self.connector.get_positions(ticket=event.position_ticket)
+                    if not open_positions:
+                        print(f"{Utils.dateprint()} - TRADING DIRECTOR: Posición {event.position_ticket} ya cerrada, no se agrega a break_even_manager")
+                        self._process_execution_or_pending_events(event)
+                        if self.trading_brain:
+                            self.trading_brain.record_execution(event)
+                        return
+                except Exception as e:
+                    print(f"{Utils.dateprint()} - TRADING DIRECTOR: Error verificando posición {event.position_ticket}: {e}")
+
             tp1 = getattr(event, 'tp1', 0.0)
             tp2 = getattr(event, 'tp2', 0.0)
             self.break_even_manager.add_position_to_monitor(
@@ -304,11 +346,16 @@ class TradingDirector():
 
     def _handle_news_event(self, event):
         print(f"{Utils.dateprint()} - Recibido NEWS EVENT - Evaluando con IA si cerrar posiciones")
+        affected_symbols = getattr(event, 'affected_symbols', []) or []
+        normalized_affected = {normalize_symbol(s) for s in affected_symbols if s}
+
         if self.trading_brain and self.trading_brain.NEWS_PROTECTION:
             close_positions = True
             if hasattr(self.trading_brain, 'ai') and self.trading_brain.ai_enabled and self.trading_brain.ai is not None:
                 close_positions = False
                 for symbol_key, perf in self.trading_brain.asset_performance.items():
+                    if normalized_affected and symbol_key not in normalized_affected:
+                        continue
                     total_trades = perf.get("total_trades", 0)
                     win_rate = perf.get("win_rate", 0.0)
                     if total_trades >= 20 and win_rate >= 0.5:
@@ -318,10 +365,13 @@ class TradingDirector():
             if close_positions:
                 positions = self.order_executor.PORTFOLIO.get_strategy_open_positions()
                 for position in positions:
+                    symbol_key = normalize_symbol(position.symbol)
+                    if normalized_affected and symbol_key not in normalized_affected:
+                        continue
                     self.order_executor.close_position_by_ticket(position.ticket)
                 self.notification_service.send_notification(
                     title="📰 NOTICIA DETECTADA",
-                    message=f"Se han cerrado todas las posiciones por protección de noticias"
+                    message=f"Se han cerrado posiciones afectadas por protección de noticias"
                 )
             else:
                 self.notification_service.send_notification(

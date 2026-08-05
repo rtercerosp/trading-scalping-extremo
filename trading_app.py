@@ -192,7 +192,7 @@ if __name__ == "__main__":
                 "max_total_positions": 8,
                 "max_positions_per_symbol": 2,
                 "max_positions_by_category": {"crypto": 4, "forex": 6},
-                "strategy": "Asset_Isolated_Guarded_Gold_BTC_ETH_EURUSD",
+                "strategy": "Asset_Isolated_Guarded_Category_Based",
                 "ai_enabled": True,
                 "ai_features": ["market_regime_detection", "strategy_selection", "per_asset_learning", "gold_guard_mode", "full_toolset_loading", "expert_rules_loading", "backtest_preloaded_scores", "news_aware_trading"],
             },

@@ -92,21 +92,14 @@ class OrderExecutor():
         stops_level = int(getattr(symbol_info, 'trade_stops_level', 0) or 0)
         
         min_stop_points = max(stops_level, 0) + 5
-        max_stop_points = None
         if asset_cat == "gold":
             min_stop_points = max(min_stop_points, 300)
-            max_stop_points = 2000
         elif asset_cat == "crypto":
             price_for_calc = price if price > 0 else 1.0
             min_stop_points = max(min_stop_points, int(price_for_calc * 0.0005 / point) if point > 0 else 5000)
-            max_stop_points = int(price_for_calc * 0.02 / point) if point > 0 else 20000
         
         sl_distance_points = abs(sl - price) / point if point > 0 else 0
         tp_distance_points = abs(tp - price) / point if point > 0 else 0
-        
-        if max_stop_points is not None:
-            sl_distance_points = min(sl_distance_points, max_stop_points)
-            tp_distance_points = min(tp_distance_points, max_stop_points)
         
         sl_distance_points = max(sl_distance_points, min_stop_points)
         tp_distance_points = max(tp_distance_points, min_stop_points)
@@ -142,15 +135,12 @@ class OrderExecutor():
 
         symbol_info = self.connector.get_symbol_info(order_event.symbol)
         if symbol_info:
-            order_event.volume = round(order_event.volume / symbol_info.volume_step) * symbol_info.volume_step
-            if order_event.volume < symbol_info.volume_min:
-                order_event.volume = symbol_info.volume_min
+            volume = round(order_event.volume / symbol_info.volume_step) * symbol_info.volume_step
+            if volume < symbol_info.volume_min:
+                volume = symbol_info.volume_min
 
         sl = order_event.sl
         tp = order_event.tp
-        if sl <= 0.0 or tp <= 0.0:
-            sl = order_event.sl
-            tp = order_event.tp
         comment = "FWK Market Order"
 
         if tp == 0.0 and order_event.tp1 > 0.0 and order_event.tp2 <= 0.0:
@@ -180,18 +170,18 @@ class OrderExecutor():
         market_order_request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": order_event.symbol,
-            "volume": order_event.volume,
+            "volume": volume,
             "price": price,
             "sl": sl,
             "tp": tp,
             "type": order_type,
-            "deviation": 10,
+            "deviation": 20 if order_event.symbol.startswith(("XAU", "GOLD")) else 10,
             "magic": order_event.magic_number,
             "comment": comment,
             "type_filling": filling_mode,
         }
 
-        print(f"{Utils.dateprint()} - ORD EXEC: {order_event.signal} {order_event.symbol} exec_price={price} spread={symbol_info.ask - symbol_info.bid:.2f} sl={sl} tp={tp}")
+        print(f"{Utils.dateprint()} - ORD EXEC: {order_event.signal} {order_event.symbol} exec_price={price} spread={symbol_info.ask - symbol_info.bid:.2f} sl={sl} tp={tp}" + (" [PRIORITY:GOLD]" if order_event.symbol.startswith(("XAU", "GOLD")) else ""))
         result = self.connector.order_send(market_order_request)
         if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
             if result.retcode == mt5.TRADE_RETCODE_INVALID_STOPS and (sl != 0.0 or tp != 0.0):
@@ -238,7 +228,7 @@ class OrderExecutor():
                     return
 
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            message = f"Market Order {order_event.signal} para {order_event.symbol} de {order_event.volume} lotes ejecutada correctamente. Ticket: {result.order}"
+            message = f"Market Order {order_event.signal} para {order_event.symbol} de {volume} lotes ejecutada correctamente. Ticket: {result.order}"
             print(f"{Utils.dateprint()} - {message}")
             self.notification_service.send_notification(
                 title=f"✅ ORDEN EJECUTADA - {order_event.symbol}",
@@ -261,7 +251,7 @@ class OrderExecutor():
         elif "TP2" in comment:
             log_tp_part = f"TP2={tp}"
         
-        print(f"{Utils.dateprint()} - Market Order {order_event.signal} para {order_event.symbol} de {order_event.volume} lotes ejecutada correctamente ({log_tp_part})")
+        print(f"{Utils.dateprint()} - Market Order {order_event.signal} para {order_event.symbol} de {volume} lotes ejecutada correctamente ({log_tp_part})")
         self._create_and_put_execution_event(
             result,
             tp1=order_event.tp1,

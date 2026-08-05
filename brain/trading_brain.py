@@ -93,7 +93,7 @@ class TradingBrain:
                     "max_volume_btc": 0.02,
                     "max_volume_eth": 0.02,
                     "max_volume_sol": 0.02,
-                    "strategy": "Asset_Isolated_Guarded_Gold_BTC_ETH_EURUSD",
+                    "strategy": "Asset_Isolated_Guarded_Category_Based",
                     "spread_buffer": "1.5x spread + 20 pts",
                     "atr_min_btc": 200,
                     "atr_min_eth": 100,
@@ -499,11 +499,11 @@ class TradingBrain:
                     remaining = [name for name in available if name != primary]
                     order = [primary]
                     if asset_category == "gold":
-                        order.extend([name for name in remaining if name in ("SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover", "SignalSmartMoneyEURUSD")])
-                    elif symbol_key in ("BTCUSD", "ETHUSD"):
-                        order.extend([name for name in remaining if name in ("SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalBTCStructureBreakout", "SignalETHStructureBreakout", "SignalMomentum", "SignalBreakout")])
+                        order.extend([name for name in remaining if name in ("SignalTrendPullback", "SignalBreakout", "SignalFibScalp", "SignalRSI", "SignalMACrossover")])
+                    elif asset_category == "crypto":
+                        order.extend([name for name in remaining if name in ("SignalMomentum", "SignalBreakout", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalBTCStructureBreakout", "SignalETHStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover")])
                     else:
-                        order.extend([name for name in remaining if name in ("SignalSmartMoneyEURUSD", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover")])
+                        order.extend([name for name in remaining if name in ("SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover", "SignalEURUSDExtreme", "SignalGBPExtreme", "SignalUSDJPExtreme")])
                     order.extend([name for name in remaining if name not in order])
                     return order
             except Exception as e:
@@ -517,7 +517,7 @@ class TradingBrain:
                 if trades < 5:
                     return 0.0
                 win_rate = stats.get("win_rate", 0.0)
-                profit_factor = stats.get("profit", 0.0) / abs(stats.get("profit", 0.0) - 2 * stats.get("profit", 0.0)) if stats.get("profit", 0.0) != 0 else 0.0
+                profit_factor = stats.get("gross_profit", 0.0) / stats.get("gross_loss", 0.0) if stats.get("gross_loss", 0.0) > 0 else (float('inf') if stats.get("gross_profit", 0.0) > 0 else 0.0)
                 profit = stats.get("profit", 0.0)
                 return win_rate * 0.4 + min(profit_factor, 3.0) * 0.3 + min(trades / 50.0, 1.0) * 0.3
 
@@ -533,24 +533,39 @@ class TradingBrain:
         total_trades = perf.get("total_trades", 0)
 
         if total_trades < self.min_trades_for_learning:
-            default_by_symbol = {
-                "BTCUSD": ["SignalBTCExtreme", "SignalSmartMoneyBTC", "SignalFibScalp", "SignalMomentum", "SignalBTCStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"],
-                "ETHUSD": ["SignalFibScalp", "SignalSmartMoneyETH", "SignalMomentum", "SignalBreakout", "SignalETHStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"],
-                "EURUSD": ["SignalEURUSDExtreme", "SignalSmartMoneyEURUSD", "SignalFibScalp", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"],
-                "XAUUSD": ["SignalFibScalp", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"],
-            }
-            filtered = [name for name in default_by_symbol.get(symbol_key, ["SignalTrendPullback"]) if name in available]
+            if asset_category == "gold":
+                default_by_category = ["SignalXAUExtreme", "SignalFibScalp", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+            elif asset_category == "crypto":
+                default_by_category = ["SignalFibScalp", "SignalSmartMoneyETH", "SignalMomentum", "SignalBreakout", "SignalETHStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"]
+            else:
+                default_by_category = ["SignalEURUSDExtreme", "SignalSmartMoneyEURUSD", "SignalFibScalp", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+            filtered = [name for name in default_by_category if name in available]
             if filtered:
                 return filtered
             return available
 
         if available:
             if win_rate > 0.6:
-                preferred = ["SignalMomentum", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalSmartMoneyEURUSD", "SignalBreakout"]
+                if asset_category == "gold":
+                    preferred = ["SignalXAUExtreme", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+                elif asset_category == "crypto":
+                    preferred = ["SignalMomentum", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalBreakout", "SignalBTCStructureBreakout", "SignalETHStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"]
+                else:
+                    preferred = ["SignalEURUSDExtreme", "SignalGBPExtreme", "SignalUSDJPExtreme", "SignalSmartMoneyEURUSD", "SignalMomentum", "SignalBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"]
             elif win_rate > 0.4:
-                preferred = ["SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+                if asset_category == "gold":
+                    preferred = ["SignalXAUExtreme", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+                elif asset_category == "crypto":
+                    preferred = ["SignalMomentum", "SignalBreakout", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"]
+                else:
+                    preferred = ["SignalEURUSDExtreme", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover", "SignalGBPExtreme", "SignalUSDJPExtreme", "SignalSmartMoneyEURUSD"]
             else:
-                preferred = ["SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover", "SignalSmartMoneyEURUSD", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalMomentum"]
+                if asset_category == "gold":
+                    preferred = ["SignalXAUExtreme", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover"]
+                elif asset_category == "crypto":
+                    preferred = ["SignalMomentum", "SignalSmartMoneyBTC", "SignalSmartMoneyETH", "SignalBreakout", "SignalBTCStructureBreakout", "SignalETHStructureBreakout", "SignalTrendPullback", "SignalRSI", "SignalMACrossover"]
+                else:
+                    preferred = ["SignalEURUSDExtreme", "SignalTrendPullback", "SignalBreakout", "SignalRSI", "SignalMACrossover", "SignalSmartMoneyEURUSD", "SignalGBPExtreme", "SignalUSDJPExtreme"]
             order = [name for name in preferred if name in available]
             order.extend([name for name in available if name not in order])
             return order

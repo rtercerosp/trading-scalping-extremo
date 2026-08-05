@@ -24,7 +24,7 @@ from order_executor.order_executor import OrderExecutor
 from platform_connector.platform_connector import PlatformConnector
 from data_provider.data_provider import DataProvider
 from utils.utils import Utils
-from utils.symbol_utils import normalize_symbol
+from utils.symbol_utils import normalize_symbol, get_asset_category
 import config
 
 logger = getLogger(__name__)
@@ -125,9 +125,10 @@ class BacktestEngine:
     def _run_symbol_backtest(self, symbol: str) -> None:
         print(f"\n{Utils.dateprint()} - BACKTEST: Procesando {symbol}")
         symbol_key = normalize_symbol(symbol)
+        asset_category = get_asset_category(symbol_key)
 
-        mtf_timeframe = "30min" if symbol_key in ("BTCUSD", "ETHUSD", "XAUUSD") else "15min"
-        etf_timeframe = "15min" if symbol_key in ("BTCUSD", "ETHUSD", "XAUUSD") else "5min"
+        mtf_timeframe = "30min" if asset_category in ("crypto", "gold") else "15min"
+        etf_timeframe = "15min" if asset_category in ("crypto", "gold") else "5min"
 
         bars = self._get_historical_bars(symbol, etf_timeframe, self.days_back)
         if bars is None or bars.empty:
@@ -139,18 +140,18 @@ class BacktestEngine:
             trend_bars = bars.copy()
 
         extra_timeframes = {}
-        if symbol_key in ("BTCUSD", "ETHUSD"):
+        if asset_category == "crypto":
             extra_5min = self._get_historical_bars(symbol, "5min", self.days_back)
             if extra_5min is not None and not extra_5min.empty:
                 extra_timeframes["5min"] = extra_5min
-        if symbol_key == "EURUSD":
-            extra_1min = self._get_historical_bars(symbol, "1min", self.days_back)
-            if extra_1min is not None and not extra_1min.empty:
-                extra_timeframes["1min"] = extra_1min
-        if symbol_key == "XAUUSD":
+        elif asset_category == "gold":
             extra_5min_xau = self._get_historical_bars(symbol, "5min", self.days_back)
             if extra_5min_xau is not None and not extra_5min_xau.empty:
                 extra_timeframes["5min"] = extra_5min_xau
+        elif asset_category == "forex":
+            extra_1min = self._get_historical_bars(symbol, "1min", self.days_back)
+            if extra_1min is not None and not extra_1min.empty:
+                extra_timeframes["1min"] = extra_1min
 
         connector = self._create_mock_connector(symbol, bars)
         data_provider = DataProvider(
@@ -298,7 +299,7 @@ class BacktestEngine:
                         data_provider,
                         portfolio,
                         order_executor,
-                        asset_category=normalize_symbol(symbol) in ("BTCUSD", "ETHUSD") and "crypto" or normalize_symbol(symbol) == "XAUUSD" and "gold" or "forex",
+                        asset_category=get_asset_category(normalize_symbol(symbol)),
                     )
                     if signal is not None:
                         self.results[symbol_key][strategy_name].record_signal()
@@ -355,11 +356,12 @@ class BacktestEngine:
         first_close = float(bars['close'].iloc[-1])
         symbol_info = mt5.symbol_info(symbol)
         normalized = normalize_symbol(symbol)
+        asset_category = get_asset_category(normalized)
         if symbol_info is None:
             class MockInfo:
                 pass
             mock_info = MockInfo()
-            if normalized == "BTCUSD":
+            if asset_category == "crypto":
                 mock_info.point = 1.0
                 mock_info.trade_stops_level = 10
                 mock_info.volume_min = 0.01
@@ -369,17 +371,7 @@ class BacktestEngine:
                 mock_info.trade_tick_value = 1.0
                 mock_info.trade_contract_size = 1.0
                 mock_info.currency_profit = "USD"
-            elif normalized == "ETHUSD":
-                mock_info.point = 1.0
-                mock_info.trade_stops_level = 10
-                mock_info.volume_min = 0.01
-                mock_info.volume_max = 100.0
-                mock_info.volume_step = 0.01
-                mock_info.trade_tick_size = 1.0
-                mock_info.trade_tick_value = 1.0
-                mock_info.trade_contract_size = 1.0
-                mock_info.currency_profit = "USD"
-            elif normalized == "XAUUSD":
+            elif asset_category == "gold":
                 mock_info.point = 0.01
                 mock_info.trade_stops_level = 20
                 mock_info.volume_min = 0.01
@@ -389,7 +381,7 @@ class BacktestEngine:
                 mock_info.trade_tick_value = 1.0
                 mock_info.trade_contract_size = 100.0
                 mock_info.currency_profit = "USD"
-            elif normalized == "EURUSD":
+            elif asset_category == "forex":
                 mock_info.point = 0.00001
                 mock_info.trade_stops_level = 5
                 mock_info.volume_min = 0.01

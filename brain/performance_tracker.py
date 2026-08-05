@@ -42,6 +42,8 @@ class PerformanceTracker:
                 "wins": 0,
                 "losses": 0,
                 "profit": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
                 "win_rate": 0.0,
             }
         rec = self.strategy_performance[symbol_key][strategy]
@@ -49,8 +51,10 @@ class PerformanceTracker:
         rec["profit"] += profit
         if profit > 0:
             rec["wins"] += 1
+            rec["gross_profit"] += profit
         else:
             rec["losses"] += 1
+            rec["gross_loss"] += abs(profit)
         rec["win_rate"] = rec["wins"] / rec["trades"] if rec["trades"] > 0 else 0.0
 
     def get_asset_performance(self, symbol: str) -> Dict:

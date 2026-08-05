@@ -96,7 +96,7 @@ class TradingAI:
             if preferred:
                 return preferred[0]
         elif market_regime == "range":
-            preferred = [s for s in available_strategies if "EURUSD" in s or "TrendPullback" in s]
+            preferred = [s for s in available_strategies if "TrendPullback" in s]
             if preferred:
                 return preferred[0]
 

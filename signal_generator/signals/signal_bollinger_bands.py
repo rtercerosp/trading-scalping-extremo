@@ -92,14 +92,8 @@ class SignalBollingerBands(ISignalGenerator):
         return middle, upper, lower, bandwidth
 
     def _get_asset_category(self, symbol: str) -> str:
-        crypto_symbols = ["BTCUSD", "ETHUSD", "XRPUSD", "SOLUSD", "ADAUSD", "DOGEUSD", "MATICUSD", "AVAXUSD", "DOTUSD", "LINKUSD", "UNIUSD", "LTCUSD", "BCHUSD", "XLMUSD", "ATOMUSD", "FILUSD", "APTUSD", "OPUSD", "ARBUSD", "INJUSD"]
-        gold_symbols = ["XAUUSD", "XAUUSD+", "XAUUSD", "GOLD", "XAUUSDm", "XAUUSD.a"]
-        upper = symbol.upper()
-        if upper in crypto_symbols:
-            return "crypto"
-        if upper in gold_symbols:
-            return "gold"
-        return "forex"
+        from utils.symbol_utils import get_asset_category
+        return get_asset_category(symbol)
 
     def generate_signal(self, data_event: DataEvent, data_provider: DataProvider,
                         portfolio: Portfolio, order_executor: OrderExecutor,

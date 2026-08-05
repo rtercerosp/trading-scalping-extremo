@@ -39,7 +39,7 @@ class SignalBTCBreakout(ISignalGenerator):
                        portfolio: Portfolio, order_executor: OrderExecutor,
                        asset_category: str = "forex") -> SignalEvent | None:
         symbol = data_event.symbol
-        if symbol.upper() != "BTCUSD":
+        if asset_category != "crypto":
             return None
 
         bars = data_provider.get_latest_closed_bars(symbol, self.entry_timeframe, self.lookback + 10)

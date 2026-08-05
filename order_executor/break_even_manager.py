@@ -8,6 +8,7 @@ from notifications.notifications import NotificationService
 from order_executor.order_executor import OrderExecutor
 from events.events import SignalType
 import MetaTrader5 as mt5
+import time
 
 
 class BreakEvenManager:
@@ -26,7 +27,7 @@ class BreakEvenManager:
         self.positions_to_monitor: Dict[int, Dict] = {}
         self.linked_positions: Dict[int, int] = {}
         self._trailing_activation_pct: float = 0.003
-        self._trailing_offset_pct: float = 0.0015
+        self._trailing_offset_pct: float = 0.002
 
     def _get_trailing_params(self, symbol: str) -> tuple:
         if self.trading_brain and hasattr(self.trading_brain, 'get_extreme_scalping_params'):
@@ -222,6 +223,38 @@ class BreakEvenManager:
 
             current_price = latest_tick['bid'] if signal_type == SignalType.SELL else latest_tick['ask']
 
+            symbol_info = self.connector.get_symbol_info(symbol)
+            point = getattr(symbol_info, 'point', None) if symbol_info else None
+            if not point or point <= 0:
+                point = 0.0001
+
+            dist_to_tp1 = None
+            dist_to_sl = None
+            try:
+                if signal_type == SignalType.BUY:
+                    dist_to_tp1 = (tp1 - current_price) / point
+                    dist_to_sl = (current_price - entry_price) / point
+                else:
+                    dist_to_tp1 = (current_price - tp1) / point
+                    dist_to_sl = (entry_price - current_price) / point
+            except Exception as e:
+                print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error calculando distancias para {symbol} ticket={position_ticket}: {e}")
+
+            now = time.time()
+            last_log_ts = details.get('_last_log_ts', 0.0)
+            if dist_to_tp1 is not None and dist_to_sl is not None:
+                if abs(dist_to_tp1) > 5000 or abs(dist_to_sl) > 5000:
+                    if now - last_log_ts > 300:
+                        print(f"{Utils.dateprint()} - BREAK EVEN MGR: {symbol} ticket={position_ticket} type={signal_type} TP IRREAL detectado dist_to_tp1={dist_to_tp1:.1f}pts dist_to_sl={dist_to_sl:.1f}pts - No se monitoreará más")
+                        details['_last_log_ts'] = now
+                    tickets_to_remove.append(position_ticket)
+                    if position_ticket in self.linked_positions:
+                        del self.linked_positions[position_ticket]
+                    continue
+                if now - last_log_ts > 10:
+                    print(f"{Utils.dateprint()} - BREAK EVEN MGR: {symbol} ticket={position_ticket} type={signal_type} current={current_price} tp1={tp1} tp2={tp2} dist_to_tp1={dist_to_tp1:.1f}pts dist_to_sl={dist_to_sl:.1f}pts tp1_hit={details['tp1_hit']}")
+                    details['_last_log_ts'] = now
+
             tp1_hit = False
             if signal_type == SignalType.BUY and current_price >= tp1 and tp1 > 0:
                 tp1_hit = True
@@ -231,6 +264,8 @@ class BreakEvenManager:
             if tp1_hit and not details['tp1_hit']:
                 details['tp1_hit'] = True
                 is_tp1_position = (initial_tp > 0 and abs(initial_tp - tp1) < abs(initial_tp - tp2) if tp2 > 0 else True)
+
+                print(f"{Utils.dateprint()} - BREAK EVEN MGR: TP1 ALCANZADO para {symbol} ticket={position_ticket} current={current_price} tp1={tp1} tp2={tp2} type={signal_type}")
 
                 positions = self.connector.get_positions(ticket=position_ticket)
                 if positions:
