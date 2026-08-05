@@ -14,7 +14,7 @@ MAGIC_NUMBER: int = 20260728 # Mantener el mismo Magic Number para la misma base
 STRATEGY_VERSION: str = "V10_ZERO_LOSS_SCALPING"
 
 # Lista de símbolos por defecto. Puede ser sobreescrita por la variable de entorno TRADING_SYMBOLS.
-DEFAULT_SYMBOLS: list[str] = ["XAUUSDc", "EURUSDc", "GBPUSDc", "USDJPYc", "ETHUSDc"]
+DEFAULT_SYMBOLS: list[str] = ["BTCUSDc", "XAUUSDc", "ETHUSDc", "EURUSDc"]
 
 # --- 2. CONFIGURACIÓN DE TIMEFRAMES ---
 ENTRY_TIMEFRAME: str = "5min"
@@ -25,13 +25,13 @@ BACKTEST_DAYS: int = 30
 BACKTEST_TIMEFRAME: str = "5min"
 
 # --- 4. CONFIGURACIÓN DE LA CARTERA (PORTFOLIO) ---
-PORTFOLIO_MAX_TOTAL_POSITIONS: int = 10
-PORTFOLIO_MAX_POSITIONS_PER_SYMBOL: int = 4
+PORTFOLIO_MAX_TOTAL_POSITIONS: int = 12
+PORTFOLIO_MAX_POSITIONS_PER_SYMBOL: int = 3
 PORTFOLIO_MAX_POSITIONS_BY_SYMBOL: dict[str, int] = {
-    "XAUUSD": 4, "EURUSD": 2, "GBPUSD": 2, "USDJPY": 2, "ETHUSD": 2
+    "BTCUSD": 3, "ETHUSD": 3, "XAUUSD": 3, "EURUSD": 3
 }
 PORTFOLIO_MAX_POSITIONS_BY_CATEGORY: dict[str, int] = {
-    "gold": 4, "forex": 4, "crypto": 2
+    "crypto": 6, "gold": 3, "forex": 3
 }
 
 # --- 5. CONFIGURACIÓN DEL GESTOR DE RIESGO ---
@@ -42,27 +42,45 @@ SIZER_DEFAULT_RISK_PCT: float = 0.015
 
 # --- 6b. CONFIGURACIÓN DE SCALPING EXTREMO POR ACTIVO ---
 EXTREME_SCALPING_PARAMS: dict[str, dict] = {
-    "XAUUSD": {
+    "BTCUSD": {
         "enabled": True,
-        "sl_atr_mult": 0.65,
-        "tp_atr_mult": 4.0,
-        "risk_pct": 0.012,
-        "trailing_activation_pct": 0.0025,
-        "trailing_offset_pct": 0.002,
-        "min_win_rate_for_trading": 0.52,
-        "exclude_if_win_rate_below": 0.42,
-        "priority": 1,
+        "sl_atr_mult": 1.0,
+        "tp_atr_mult": 2.2,
+        "risk_pct": 0.003,
+        "trailing_activation_pct": 0.002,
+        "trailing_offset_pct": 0.0015,
+        "min_win_rate_for_trading": 0.50,
+        "exclude_if_win_rate_below": 0.40,
+    },
+    "ETHUSD": {
+        "enabled": True,
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 3.5,
+        "risk_pct": 0.008,
+        "trailing_activation_pct": 0.002,
+        "trailing_offset_pct": 0.0015,
+        "min_win_rate_for_trading": 0.45,
+        "exclude_if_win_rate_below": 0.38,
     },
     "EURUSD": {
         "enabled": True,
-        "sl_atr_mult": 0.75,
-        "tp_atr_mult": 2.2,
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 2.0,
         "risk_pct": 0.007,
-        "trailing_activation_pct": 0.0018,
-        "trailing_offset_pct": 0.0012,
-        "min_win_rate_for_trading": 0.54,
+        "trailing_activation_pct": 0.0015,
+        "trailing_offset_pct": 0.001,
+        "min_win_rate_for_trading": 0.55,
         "exclude_if_win_rate_below": 0.45,
-        "priority": 2,
+    },
+    "XAUUSD": {
+        "enabled": True,
+        "sl_atr_mult": 0.7,
+        "tp_atr_mult": 3.5,
+        "risk_pct": 0.010,
+        "trailing_activation_pct": 0.003,
+        "trailing_offset_pct": 0.002,
+        "min_win_rate_for_trading": 0.50,
+        "exclude_if_win_rate_below": 0.42,
     },
     "GBPUSD": {
         "enabled": True,
@@ -86,23 +104,24 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
         "exclude_if_win_rate_below": 0.43,
         "priority": 4,
     },
-    "ETHUSD": {
-        "enabled": True,
-        "sl_atr_mult": 0.9,
-        "tp_atr_mult": 2.4,
-        "risk_pct": 0.008,
-        "trailing_activation_pct": 0.0022,
-        "trailing_offset_pct": 0.0015,
-        "min_win_rate_for_trading": 0.52,
-        "exclude_if_win_rate_below": 0.42,
-        "priority": 5,
-    },
 }
 
 # --- 6b-II. CONFIGURACIÓN V10 ZERO LOSS SCALPING ---
 V10_ZERO_LOSS_ENABLED: bool = True
 V10_BREAK_EVEN_TRIGGER_PCT: float = 0.50
 V10_BREAK_EVEN_BUFFER_POINTS: int = 2
+V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL: dict[str, int] = {
+    "EURUSD": 30,
+    "EURUSDc": 30,
+    "GBPUSD": 35,
+    "GBPUSDc": 35,
+    "USDJPY": 300,
+    "USDJPYc": 300,
+    "XAUUSD": 300,
+    "XAUUSDc": 300,
+    "ETHUSD": 150,
+    "ETHUSDc": 150,
+}
 V10_REVERSE_PROTECTION_PCT: float = 0.30
 V10_GAP_PROTECTION_PCT: float = 0.003
 V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT: float = 0.25
@@ -148,31 +167,26 @@ LEARNING_DEFAULT_LEARNING_RATE: float = 0.1
 
 # 7.3. Calibración Específica por Activo (LearningEngine)
 LEARNING_ASSET_SPECIFIC_PARAMS: dict[str, dict] = {
-    "XAUUSD": {
-        "sl_atr_mult": 0.65,
-        "tp_atr_mult": 4.0,
-        "risk_pct": 0.012,
+    "BTCUSD": {
+        "sl_atr_mult": 1.0,
+        "tp_atr_mult": 2.2,
+        "risk_pct": 0.003,
     },
     "EURUSD": {
-        "sl_atr_mult": 0.75,
-        "tp_atr_mult": 2.2,
-        "risk_pct": 0.007,
-    },
-    "GBPUSD": {
-        "sl_atr_mult": 0.85,
-        "tp_atr_mult": 2.4,
-        "risk_pct": 0.008,
-    },
-    "USDJPY": {
-        "sl_atr_mult": 0.85,
-        "tp_atr_mult": 2.2,
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 2.0,
         "risk_pct": 0.007,
     },
     "ETHUSD": {
-        "sl_atr_mult": 0.9,
-        "tp_atr_mult": 2.4,
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 3.5,
         "risk_pct": 0.008,
     },
+    "XAUUSD": {
+        "sl_atr_mult": 0.7,
+        "tp_atr_mult": 3.5,
+        "risk_pct": 0.010,
+    }
 }
 
 # 7.4. Límites y Pasos del Motor de Aprendizaje (LearningEngine)

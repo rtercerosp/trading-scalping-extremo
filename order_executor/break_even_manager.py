@@ -10,6 +10,7 @@ from events.events import SignalType
 import MetaTrader5 as mt5
 import time
 import logging
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,12 @@ class BreakEvenManager:
         self._trailing_offset_pct: float = 0.002
 
     def _get_zero_loss_params(self, symbol: str) -> dict:
+        from utils.symbol_utils import normalize_symbol
+        symbol_key = normalize_symbol(symbol)
         defaults = {
             "break_even_trigger_pct": 0.50,
             "break_even_buffer_points": 2,
+            "break_even_trigger_points": getattr(config, "V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL", {}).get(symbol_key, 0),
             "reverse_protection_pct": 0.30,
             "gap_protection_pct": 0.003,
             "pre_breakeven_max_sl_improvement_pct": 0.25,
@@ -203,10 +207,14 @@ class BreakEvenManager:
                     details['_last_log_ts'] = now
 
             breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.50)
+            breakeven_trigger_points = params.get("break_even_trigger_points", 0)
             if initial_tp > 0:
                 total_tp_distance = abs(initial_tp - entry_price)
                 if total_tp_distance > 0:
-                    breakeven_trigger_distance = total_tp_distance * breakeven_trigger_pct
+                    if breakeven_trigger_points > 0:
+                        breakeven_trigger_distance = breakeven_trigger_points * point
+                    else:
+                        breakeven_trigger_distance = total_tp_distance * breakeven_trigger_pct
                     breakeven_trigger_price = entry_price + breakeven_trigger_distance if signal_type == SignalType.BUY else entry_price - breakeven_trigger_distance
                     details['breakeven_trigger_price'] = breakeven_trigger_price
 
