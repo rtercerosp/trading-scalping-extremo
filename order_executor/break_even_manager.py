@@ -229,6 +229,13 @@ class BreakEvenManager:
                     breakeven_trigger_price = entry_price + breakeven_trigger_distance if signal_type == SignalType.BUY else entry_price - breakeven_trigger_distance
                     details['breakeven_trigger_price'] = breakeven_trigger_price
 
+                    # Log detallado cada 10s
+                    now = time.time()
+                    last_log_ts = details.get('_last_log_ts', 0.0)
+                    if now - last_log_ts > 10:
+                        print(f"{Utils.dateprint()} - BREAK EVEN MGR: {symbol} #{position_ticket} entry={entry_price:.5f} tp={initial_tp:.5f} sl={initial_sl:.5f} current={current_price:.5f} dist_to_tp={dist_to_tp:.1f}pts dist_to_entry={dist_to_entry:.1f}pts trigger_dist={breakeven_trigger_distance/point:.1f}pts trigger_price={breakeven_trigger_price:.5f} triggered={details.get('breakeven_triggered', False)}")
+                        details['_last_log_ts'] = now
+
                     breakeven_hit = (signal_type == SignalType.BUY and current_price >= breakeven_trigger_price) or (signal_type == SignalType.SELL and current_price <= breakeven_trigger_price)
                     if breakeven_hit and not details.get('breakeven_triggered'):
                         details['breakeven_triggered'] = True
