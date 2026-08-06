@@ -84,7 +84,7 @@ class OrderExecutor():
 
     @staticmethod
     def _make_valid_stops(signal: str, price: float, sl: float, tp: float, symbol_info, symbol: str = "") -> tuple:
-        from utils.symbol_utils import get_asset_category, normalize_symbol
+        from utils.symbol_utils import get_asset_category
         asset_cat = get_asset_category(normalize_symbol(symbol)) if symbol else "forex"
         
         if symbol_info is None:
@@ -94,7 +94,7 @@ class OrderExecutor():
         
         min_stop_points = max(stops_level, 0) + 5
         if asset_cat == "gold":
-            min_stop_points = max(min_stop_points, 300)
+            min_stop_points = max(min_stop_points, 5000)
         elif asset_cat == "crypto":
             price_for_calc = price if price > 0 else 1.0
             min_stop_points = max(min_stop_points, int(price_for_calc * 0.0005 / point) if point > 0 else 5000)
@@ -209,10 +209,12 @@ class OrderExecutor():
         result = self.connector.order_send(market_order_request)
         if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
             if result.retcode == mt5.TRADE_RETCODE_INVALID_STOPS and (sl != 0.0 or tp != 0.0):
-                min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
                 from utils.symbol_utils import get_asset_category
                 asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
-                if asset_cat == "crypto":
+                min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
+                if asset_cat == "gold":
+                    min_stops = max(min_stops, 5000)
+                elif asset_cat == "crypto":
                     min_stops = max(min_stops, int(price * 0.0005 / symbol_info.point) if symbol_info.point > 0 else 5000)
                 
                 point = symbol_info.point
