@@ -476,7 +476,7 @@ class SignalGenerator(ISignalGenerator):
         if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
             asset_key = self._normalize_symbol(data_event.symbol)
             high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
-            quality_threshold = 80.0 if asset_key in high_sl_assets else 75.0
+            quality_threshold = 60.0 if asset_key in high_sl_assets else 60.0
         elif config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY":
             quality_threshold = 75.0
         else:

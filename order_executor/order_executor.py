@@ -85,7 +85,6 @@ class OrderExecutor():
 
     @staticmethod
     def _make_valid_stops(signal: str, price: float, sl: float, tp: float, symbol_info, symbol: str = "") -> tuple:
-        from utils.symbol_utils import get_asset_category
         asset_cat = get_asset_category(normalize_symbol(symbol)) if symbol else "forex"
         
         if symbol_info is None:
@@ -266,7 +265,6 @@ class OrderExecutor():
         result = self.connector.order_send(market_order_request)
         if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
             if result.retcode == mt5.TRADE_RETCODE_INVALID_STOPS and (sl != 0.0 or tp != 0.0):
-                from utils.symbol_utils import get_asset_category
                 asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
                 min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
                 if asset_cat == "gold":

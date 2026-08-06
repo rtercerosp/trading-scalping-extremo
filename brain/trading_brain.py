@@ -223,7 +223,7 @@ class TradingBrain:
 
     def get_zero_loss_params(self, symbol: str) -> dict:
         defaults = {
-            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.40),
+            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
             "break_even_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}).get(symbol, 0),
             "break_even_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}).get(symbol, 0),
             "break_even_buffer_points": 2,
