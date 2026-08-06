@@ -108,42 +108,42 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
 
 # --- 6b-II. CONFIGURACIÓN V10 ZERO LOSS SCALPING ---
 V10_ZERO_LOSS_ENABLED: bool = True
-V10_BREAK_EVEN_TRIGGER_PCT: float = 0.40
+V10_BREAK_EVEN_TRIGGER_PCT: float = 0.30
 V10_BREAK_EVEN_MIN_TRIGGER_POINTS: dict[str, int] = {
-    "EURUSD": 80,
-    "EURUSDc": 80,
-    "GBPUSD": 100,
-    "GBPUSDc": 100,
-    "USDJPY": 300,
-    "USDJPYc": 300,
-    "XAUUSD": 5000,
-    "XAUUSDc": 5000,
-    "ETHUSD": 200,
-    "ETHUSDc": 200,
+    "EURUSD": 12,
+    "EURUSDc": 12,
+    "GBPUSD": 18,
+    "GBPUSDc": 18,
+    "USDJPY": 15,
+    "USDJPYc": 15,
+    "XAUUSD": 3000,
+    "XAUUSDc": 3000,
+    "ETHUSD": 60,
+    "ETHUSDc": 60,
 }
 V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
-    "EURUSD": 200,
-    "EURUSDc": 200,
-    "GBPUSD": 250,
-    "GBPUSDc": 250,
-    "USDJPY": 1000,
-    "USDJPYc": 1000,
-    "XAUUSD": 8000,
-    "XAUUSDc": 8000,
-    "ETHUSD": 500,
-    "ETHUSDc": 500,
+    "EURUSD": 60,
+    "EURUSDc": 60,
+    "GBPUSD": 80,
+    "GBPUSDc": 80,
+    "USDJPY": 80,
+    "USDJPYc": 80,
+    "XAUUSD": 6000,
+    "XAUUSDc": 6000,
+    "ETHUSD": 200,
+    "ETHUSDc": 200,
 }
 V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
     "EURUSDc": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
-    "GBPUSD": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 4},
-    "GBPUSDc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 4},
+    "GBPUSD": {"spread_points": 12, "commission_per_lot": 0.0, "min_profit_points": 4},
+    "GBPUSDc": {"spread_points": 12, "commission_per_lot": 0.0, "min_profit_points": 4},
     "USDJPY": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
     "USDJPYc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
-    "XAUUSD": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 50},
-    "XAUUSDc": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 50},
-    "ETHUSD": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 30},
-    "ETHUSDc": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "XAUUSD": {"spread_points": 250, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "XAUUSDc": {"spread_points": 250, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "ETHUSD": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "ETHUSDc": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
 }
 V10_REVERSE_PROTECTION_PCT: float = 0.25
 V10_GAP_PROTECTION_PCT: float = 0.003
@@ -167,16 +167,16 @@ V10_SPREAD_MAX_POINTS_MULTIPLIER: float = 1.5
 V10_MIN_BROKER_COVERAGE_POINTS: int = 2
 V10_MAX_VOLUME_PER_CANDLE_RATIO: float = 0.05
 V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
-    "EURUSD": {"min_broker_coverage_points": 8, "multiplier": 2.0},
-    "EURUSDc": {"min_broker_coverage_points": 8, "multiplier": 2.0},
-    "GBPUSD": {"min_broker_coverage_points": 10, "multiplier": 2.0},
-    "GBPUSDc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
-    "USDJPY": {"min_broker_coverage_points": 10, "multiplier": 2.0},
-    "USDJPYc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
-    "XAUUSD": {"min_broker_coverage_points": 30, "multiplier": 1.5},
-    "XAUUSDc": {"min_broker_coverage_points": 30, "multiplier": 1.5},
-    "ETHUSD": {"min_broker_coverage_points": 30, "multiplier": 1.5},
-    "ETHUSDc": {"min_broker_coverage_points": 30, "multiplier": 1.5},
+    "EURUSD": {"min_broker_coverage_points": 10, "multiplier": 2.5},
+    "EURUSDc": {"min_broker_coverage_points": 10, "multiplier": 2.5},
+    "GBPUSD": {"min_broker_coverage_points": 15, "multiplier": 2.5},
+    "GBPUSDc": {"min_broker_coverage_points": 15, "multiplier": 2.5},
+    "USDJPY": {"min_broker_coverage_points": 15, "multiplier": 2.5},
+    "USDJPYc": {"min_broker_coverage_points": 15, "multiplier": 2.5},
+    "XAUUSD": {"min_broker_coverage_points": 300, "multiplier": 2.0},
+    "XAUUSDc": {"min_broker_coverage_points": 300, "multiplier": 2.0},
+    "ETHUSD": {"min_broker_coverage_points": 100, "multiplier": 2.5},
+    "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 2.5},
 }
 
 # --- 6c. CONFIGURACIÓN DE ESTRATEGIA FIBONACCI SCALP ---
