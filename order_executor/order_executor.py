@@ -15,12 +15,13 @@ import config
 
 class OrderExecutor():
 
-    def __init__(self, events_queue: Queue, portfolio: Portfolio, notification_service: NotificationService, connector: PlatformConnector, trading_director=None) -> None:
+    def __init__(self, events_queue: Queue, portfolio: Portfolio, notification_service: NotificationService, connector: PlatformConnector, trading_director=None, data_provider=None) -> None:
         self.events_queue = events_queue
         self.portfolio = portfolio
         self.notification_service = notification_service
         self.connector = connector
         self.trading_director = trading_director
+        self.data_provider = data_provider
         self._error_blacklist: dict[str, float] = {}
         self._error_blacklist_seconds = 60
 
@@ -105,7 +106,13 @@ class OrderExecutor():
         sl_distance_points = max(sl_distance_points, min_stop_points)
         tp_distance_points = max(tp_distance_points, min_stop_points)
 
+        # SL más amplio para activos con alta tasa de SL (respirar)
         if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+            symbol_key = normalize_symbol(symbol)
+            high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
+            if symbol_key in high_sl_assets:
+                sl_distance_points = sl_distance_points * 1.5  # 50% más de margen
+            
             min_tp_multiplier = 2.0
             if asset_cat == "gold":
                 min_tp_multiplier = 2.5
@@ -129,6 +136,43 @@ class OrderExecutor():
 
         print(f"{Utils.dateprint()} - ORD EXEC: Stops calc point={point} stops_level={stops_level} raw_sl_pts={abs(sl - price) / point if point > 0 else 0:.2f} raw_tp_pts={abs(tp - price) / point if point > 0 else 0:.2f} => sl={sl} tp={tp}")
         return sl, tp
+
+    def _calculate_dynamic_tp(self, symbol: str, signal: str, entry_price: float, initial_sl: float, asset_cat: str, symbol_info) -> float:
+        """Calcula TP dinámico basado en niveles de Soporte/Resistencia para oro y forex."""
+        if not self.data_provider or asset_cat not in ("gold", "forex"):
+            return 0.0
+        
+        try:
+            from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
+            bars = self.data_provider.get_latest_closed_bars(symbol, "15min", 100)
+            if bars is None or bars.empty or len(bars) < 30:
+                return 0.0
+            
+            sr_analyzer = DynamicSRAnalyzer(lookback=50, peak_distance=3, tolerance_pct=0.0015)
+            sr_data = sr_analyzer.analyze(bars)
+            
+            support_levels = sr_data.get("support_levels", [])
+            resistance_levels = sr_data.get("resistance_levels", [])
+            current_price = sr_data.get("current_price", entry_price)
+            
+            if signal == "BUY":
+                # Para BUY, buscar resistencia más cercana como TP
+                targets = [r["price"] for r in resistance_levels if r["price"] > current_price]
+                if targets:
+                    nearest_resistance = min(targets)
+                    # TP a 80% de la distancia a la resistencia (deja margen)
+                    tp_price = entry_price + (nearest_resistance - entry_price) * 0.8
+                    return tp_price
+            else:
+                # Para SELL, buscar soporte más cercano como TP
+                targets = [s["price"] for s in support_levels if s["price"] < current_price]
+                if targets:
+                    nearest_support = max(targets)
+                    tp_price = entry_price - (entry_price - nearest_support) * 0.8
+                    return tp_price
+        except Exception as e:
+            print(f"{Utils.dateprint()} - ORD EXEC: Error calculando TP dinámico para {symbol}: {e}")
+        return 0.0
 
 
     def _execute_market_order(self, order_event: OrderEvent, skip_tp2_pending: bool = False) -> None:
@@ -181,6 +225,20 @@ class OrderExecutor():
         if symbol_info:
             print(f"{Utils.dateprint()} - ORD EXEC: {order_event.symbol} point={symbol_info.point} trade_stops_level={symbol_info.trade_stops_level} filling={filling_mode} ask={symbol_info.ask} bid={symbol_info.bid} spread={symbol_info.ask - symbol_info.bid:.2f}")
         price = symbol_info.ask if order_event.signal == "BUY" else symbol_info.bid
+
+        # TP dinámico basado en S/R para oro y forex (V10)
+        from utils.symbol_utils import get_asset_category, normalize_symbol
+        asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
+        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING" and asset_cat in ("gold", "forex"):
+            dynamic_tp = self._calculate_dynamic_tp(order_event.symbol, order_event.signal, price, order_event.sl, asset_cat, symbol_info)
+            if dynamic_tp > 0:
+                # Usar TP dinámico si es más conservador (más cerca) que el TP original
+                if order_event.signal == "BUY" and dynamic_tp < tp:
+                    tp = dynamic_tp
+                    print(f"{Utils.dateprint()} - ORD EXEC: TP dinámico S/R para {order_event.symbol} BUY: {tp:.5f}")
+                elif order_event.signal == "SELL" and dynamic_tp > tp:
+                    tp = dynamic_tp
+                    print(f"{Utils.dateprint()} - ORD EXEC: TP dinámico S/R para {order_event.symbol} SELL: {tp:.5f}")
 
         sl, tp = self._make_valid_stops(order_event.signal, price, sl, tp, symbol_info, symbol=order_event.symbol)
 
@@ -529,14 +587,16 @@ class OrderExecutor():
         position = positions[0]
         symbol_info = self.connector.get_symbol_info(position.symbol)
         if symbol_info:
-            new_sl, new_tp = self._make_valid_stops(
-                "BUY" if position.type == mt5.ORDER_TYPE_BUY else "SELL",
-                position.price_current,
-                new_sl,
-                new_tp if new_tp != 0.0 else position.tp,
-                symbol_info,
-                symbol=position.symbol,
-            )
+            point = symbol_info.point
+            decimals = max(0, -int(__import__('math').floor(__import__('math').log10(point)))) if point > 0 else 0
+            new_sl = round(new_sl, decimals)
+            if new_tp != 0.0:
+                new_tp = round(new_tp, decimals)
+
+            if position.type == mt5.ORDER_TYPE_BUY and new_sl >= position.price_current:
+                new_sl = position.price_current - point
+            elif position.type == mt5.ORDER_TYPE_SELL and new_sl <= position.price_current:
+                new_sl = position.price_current + point
 
         request = {
             "action": mt5.TRADE_ACTION_SLTP,

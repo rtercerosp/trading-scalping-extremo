@@ -126,6 +126,7 @@ if __name__ == "__main__":
         portfolio=portfolio,
         notification_service=notifications,
         connector=connector,
+        data_provider=data_provider,
     )
 
     break_even_manager: BreakEvenManager = BreakEvenManager(
@@ -289,7 +290,7 @@ if __name__ == "__main__":
                 ],
                 "circuit_breaker_daily_loss_pct_limit": 0.02,
                 "circuit_breaker_max_consecutive_losses": 3,
-                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.40),
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
                 "zero_loss_breakeven_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}),
                 "zero_loss_breakeven_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}),
                 "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
@@ -300,7 +301,7 @@ if __name__ == "__main__":
                 "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
                 "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
-            "Version V10 Zero Loss. Break-even al 40% del TP (mínimo en puntos por símbolo), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo.",
+            "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
             set_active=True,
         )
 
@@ -385,7 +386,7 @@ if __name__ == "__main__":
                 ],
                 "circuit_breaker_daily_loss_pct_limit": 0.02,
                 "circuit_breaker_max_consecutive_losses": 3,
-                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.40),
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
                 "zero_loss_breakeven_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}),
                 "zero_loss_breakeven_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}),
                 "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
@@ -396,7 +397,7 @@ if __name__ == "__main__":
                 "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
                 "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
-            "Version V10 Zero Loss. Break-even al 40% del TP (mínimo en puntos por símbolo), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo.",
+            "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
         )
 
         try:

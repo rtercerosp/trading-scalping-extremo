@@ -311,6 +311,52 @@ class PlatformConnector():
         elif self.get_symbol_info(pair_inverse):
             fx_symbol = pair_inverse
         
+        # Si no se encuentra par directo/inverso, intentar con USD como intermediario
+        if not fx_symbol and from_ccy != 'USD' and to_ccy != 'USD':
+            # Convertir from_ccy -> USD -> to_ccy
+            pair1 = f"{from_ccy}USD"
+            pair2 = f"USD{from_ccy}"
+            pair3 = f"{to_ccy}USD"
+            pair4 = f"USD{to_ccy}"
+            
+            # Buscar par para from_ccy a USD
+            fx1 = None
+            if self.get_symbol_info(pair1):
+                fx1 = pair1
+            elif self.get_symbol_info(pair2):
+                fx1 = pair2
+            
+            # Buscar par para to_ccy a USD
+            fx2 = None
+            if self.get_symbol_info(pair3):
+                fx2 = pair3
+            elif self.get_symbol_info(pair4):
+                fx2 = pair4
+            
+            if fx1 and fx2:
+                # Conversión en dos pasos via USD
+                tick1 = self.get_symbol_info_tick(fx1)
+                tick2 = self.get_symbol_info_tick(fx2)
+                if tick1 and tick1.bid > 0 and tick2 and tick2.bid > 0:
+                    base1 = fx1[:3]
+                    base2 = fx2[:3]
+                    rate1 = tick1.bid if base1 == 'USD' else 1.0 / tick1.bid
+                    rate2 = tick2.bid if base2 == to_ccy else 1.0 / tick2.bid
+                    return amount * rate1 * rate2
+        
+        # Caso especial: convertir moneda de cotización (ej. JPY en USDJPY) a USD
+        if not fx_symbol and to_ccy in ('USD', 'USC'):
+            # Buscar par que tenga from_ccy como moneda de cotización (ej. USDJPY para JPY)
+            for suffix in ('', 'c', 'm', '.m', 'z'):
+                test_pair = f"USD{from_ccy}{suffix}"
+                if self.get_symbol_info(test_pair):
+                    fx_symbol = test_pair
+                    break
+                test_pair = f"{from_ccy}USD{suffix}"
+                if self.get_symbol_info(test_pair):
+                    fx_symbol = test_pair
+                    break
+        
         if not fx_symbol:
             print(f"ERROR: No se pudo encontrar un par de divisas para convertir de {from_ccy} a {to_ccy}.")
             return 0.0

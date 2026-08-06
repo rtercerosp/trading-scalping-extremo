@@ -472,9 +472,16 @@ class SignalGenerator(ISignalGenerator):
         buy_signals = [(s, se) for s, se in signal_candidates if se.signal == "BUY"]
         sell_signals = [(s, se) for s, se in signal_candidates if se.signal == "SELL"]
 
-        quality_threshold = 75.0 if config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY" else 60.0
+        # Umbral de calidad por activo para V10
         if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+            asset_key = self._normalize_symbol(data_event.symbol)
+            high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
+            quality_threshold = 80.0 if asset_key in high_sl_assets else 75.0
+        elif config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY":
             quality_threshold = 75.0
+        else:
+            quality_threshold = 60.0
+        
         buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
         sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 
@@ -482,33 +489,43 @@ class SignalGenerator(ISignalGenerator):
 
         logging.info("SIGNAL GENERATOR: consensus buy=%d sell=%d threshold=%d symbol=%s", len(buy_signals), len(sell_signals), consensus_threshold, data_event.symbol)
 
-        if len(buy_signals) >= consensus_threshold and len(buy_signals) >= len(sell_signals):
-            strategy, signal_event = buy_signals[0]
-            enriched_event = signal_event.copy(update={
-                "strategy_name": "+".join([s.__class__.__name__ for s, _ in buy_signals]),
+        final_signal = None
+        buy_consensus_met = len(buy_signals) >= consensus_threshold
+        sell_consensus_met = len(sell_signals) >= consensus_threshold
+
+        if buy_consensus_met and not sell_consensus_met:
+            final_signal = buy_signals[0][1]
+            final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in buy_signals])
+            logging.info("SIGNAL GENERATOR: Consenso de COMPRA claro para %s", data_event.symbol)
+        elif sell_consensus_met and not buy_consensus_met:
+            final_signal = sell_signals[0][1]
+            final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in sell_signals])
+            logging.info("SIGNAL GENERATOR: Consenso de VENTA claro para %s", data_event.symbol)
+        elif buy_consensus_met and sell_consensus_met:
+            # Ambas direcciones tienen consenso, desempatar por calidad promedio
+            avg_buy_quality = sum(se.quality_score for _, se in buy_signals) / len(buy_signals)
+            avg_sell_quality = sum(se.quality_score for _, se in sell_signals) / len(sell_signals)
+            logging.info("SIGNAL GENERATOR: Conflicto de consenso en %s. Calidad media BUY: %.1f, SELL: %.1f", data_event.symbol, avg_buy_quality, avg_sell_quality)
+
+            if avg_buy_quality > avg_sell_quality:
+                final_signal = buy_signals[0][1]
+                final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in buy_signals])
+            else:
+                final_signal = sell_signals[0][1]
+                final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in sell_signals])
+        
+        if final_signal:
+            enriched_event = final_signal.copy(update={
                 "asset_category": asset_category,
                 "market_regime": market_regime,
                 "analysis_context": analysis_context,
-                "quality_score": signal_event.quality_score,
-                "justification": signal_event.justification,
             })
+
             if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
                 enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
-            logging.info("SIGNAL GENERATOR: Señal BUY final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
-            self.events_queue.put(enriched_event)
-        elif len(sell_signals) >= consensus_threshold and len(sell_signals) >= len(buy_signals):
-            strategy, signal_event = sell_signals[0]
-            enriched_event = signal_event.copy(update={
-                "strategy_name": "+".join([s.__class__.__name__ for s, _ in sell_signals]),
-                "asset_category": asset_category,
-                "market_regime": market_regime,
-                "analysis_context": analysis_context,
-                "quality_score": signal_event.quality_score,
-                "justification": signal_event.justification,
-            })
-            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
-                enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
-            logging.info("SIGNAL GENERATOR: Señal SELL final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
+            
+            logging.info("SIGNAL GENERATOR: Señal %s final %s calidad=%.1f justificación=%s", 
+                         enriched_event.signal, enriched_event.symbol, enriched_event.quality_score, enriched_event.justification)
             self.events_queue.put(enriched_event)
         else:
             logging.info("SIGNAL GENERATOR: Sin consenso para %s (buy=%d sell=%d)", data_event.symbol, len(buy_signals), len(sell_signals))
@@ -517,6 +534,19 @@ class SignalGenerator(ISignalGenerator):
         try:
             if getattr(config, "STRATEGY_VERSION", "") != "V10_ZERO_LOSS_SCALPING":
                 return signal_event
+            
+            # Solo activar compounding si el activo tiene Profit Factor > 1.0 y Win Rate > 50%
+            if self.trading_brain:
+                asset_key = self._normalize_symbol(symbol)
+                perf = self.trading_brain.asset_performance.get(asset_key, {})
+                pf = perf.get("profit_factor", 0.0)
+                wr = perf.get("win_rate", 0.0)
+                total_trades = perf.get("total_trades", 0)
+                
+                # Requerir mínimo 20 trades y PF > 1.2, WR > 55% para compounding
+                if total_trades < 20 or pf <= 1.2 or wr <= 0.55:
+                    return signal_event
+            
             params = getattr(config, "V10_ZERO_LOSS_PARAMS", {})
             multiplier = params.get("compounding_volume_multiplier", getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0))
             min_equity = params.get("compounding_min_equity", getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0))
