@@ -44,7 +44,7 @@ class BreakEvenManager:
         defaults = {
             "break_even_trigger_pct": 0.30,
             "break_even_buffer_points": 2,
-            "break_even_trigger_points": getattr(config, "V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL", {}).get(symbol_key, 0),
+            "break_even_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}).get(symbol_key, 0),
             "broker_cost_coverage": getattr(config, "V10_BROKER_COST_COVERAGE", {}).get(symbol_key, {"spread_points": 0, "commission_per_lot": 0.0, "min_profit_points": 0}),
             "reverse_protection_pct": 0.25,
             "gap_protection_pct": 0.003,
@@ -215,14 +215,17 @@ class BreakEvenManager:
                 continue
 
             breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.30)
-            breakeven_trigger_points = params.get("break_even_trigger_points", 0)
+            max_trigger_points = params.get("break_even_max_trigger_points", 0)
             if initial_tp > 0:
                 total_tp_distance = abs(initial_tp - entry_price)
                 if total_tp_distance > 0:
-                    if breakeven_trigger_points > 0:
-                        breakeven_trigger_distance = breakeven_trigger_points * point
+                    trigger_distance_pct = total_tp_distance * breakeven_trigger_pct
+                    if max_trigger_points > 0:
+                        max_trigger_distance = max_trigger_points * point
+                        breakeven_trigger_distance = min(trigger_distance_pct, max_trigger_distance)
                     else:
-                        breakeven_trigger_distance = total_tp_distance * breakeven_trigger_pct
+                        breakeven_trigger_distance = trigger_distance_pct
+                    
                     breakeven_trigger_price = entry_price + breakeven_trigger_distance if signal_type == SignalType.BUY else entry_price - breakeven_trigger_distance
                     details['breakeven_trigger_price'] = breakeven_trigger_price
 
@@ -231,25 +234,33 @@ class BreakEvenManager:
                         details['breakeven_triggered'] = True
                         position = next((p for p in current_open_positions if p.ticket == position_ticket), None)
                         volume = position.volume if position else 0.01
-                        new_sl = self._calculate_breakeven_sl(symbol, entry_price, signal_type, volume, point)
+                        target_sl = self._calculate_breakeven_sl(symbol, entry_price, signal_type, volume, point)
                         
-                        if signal_type == SignalType.BUY and new_sl >= current_price:
-                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} >= precio actual {current_price} para BUY {symbol}. Se salta.")
-                        elif signal_type == SignalType.SELL and new_sl <= current_price:
-                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL de breakeven {new_sl} <= precio actual {current_price} para SELL {symbol}. Se salta.")
+                        if signal_type == SignalType.BUY:
+                            if target_sl >= current_price:
+                                new_sl = current_price - (params.get("break_even_buffer_points", 2) * point)
+                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL objetivo {target_sl} >= precio actual {current_price} para BUY {symbol}. Ajustando a {new_sl} (micro-profit lock)")
+                            else:
+                                new_sl = target_sl
                         else:
-                            try:
-                                self.order_executor.modify_position_sl(position_ticket, new_sl)
-                                details['current_sl'] = new_sl
-                                details['sl_moved_to_breakeven'] = True
-                                message = f"BREAK EVEN V10 ZERO LOSS activado en {position_ticket}: SL movido a {new_sl} (entry {entry_price} + costos broker)"
-                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
-                                self.notification_service.send_notification(
-                                    title=f"🛡️ ZERO LOSS BREAK-EVEN - {symbol}",
-                                    message=message
-                                )
-                            except Exception as e:
-                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL a breakeven para {position_ticket}: {e}")
+                            if target_sl <= current_price:
+                                new_sl = current_price + (params.get("break_even_buffer_points", 2) * point)
+                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: SL objetivo {target_sl} <= precio actual {current_price} para SELL {symbol}. Ajustando a {new_sl} (micro-profit lock)")
+                            else:
+                                new_sl = target_sl
+                        
+                        try:
+                            self.order_executor.modify_position_sl(position_ticket, new_sl)
+                            details['current_sl'] = new_sl
+                            details['sl_moved_to_breakeven'] = True
+                            message = f"BREAK EVEN V10 ZERO LOSS activado en {position_ticket}: SL movido a {new_sl} (entry {entry_price} + costos broker, trigger@{breakeven_trigger_pct:.0%} TP)"
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
+                            self.notification_service.send_notification(
+                                title=f"🛡️ ZERO LOSS BREAK-EVEN - {symbol}",
+                                message=message
+                            )
+                        except Exception as e:
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL a breakeven para {position_ticket}: {e}")
 
                     if not details.get('breakeven_triggered') and dist_to_entry > 0:
                         pre_breakeven_pct = params.get("pre_breakeven_max_sl_improvement_pct", 0.20)

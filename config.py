@@ -110,17 +110,17 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
 V10_ZERO_LOSS_ENABLED: bool = True
 V10_BREAK_EVEN_TRIGGER_PCT: float = 0.30
 V10_BREAK_EVEN_BUFFER_POINTS: int = 2
-V10_BREAK_EVEN_TRIGGER_POINTS_BY_SYMBOL: dict[str, int] = {
-    "EURUSD": 20,
-    "EURUSDc": 20,
-    "GBPUSD": 25,
-    "GBPUSDc": 25,
-    "USDJPY": 200,
-    "USDJPYc": 200,
-    "XAUUSD": 200,
-    "XAUUSDc": 200,
-    "ETHUSD": 100,
-    "ETHUSDc": 100,
+V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
+    "EURUSD": 50,
+    "EURUSDc": 50,
+    "GBPUSD": 60,
+    "GBPUSDc": 60,
+    "USDJPY": 300,
+    "USDJPYc": 300,
+    "XAUUSD": 500,
+    "XAUUSDc": 500,
+    "ETHUSD": 200,
+    "ETHUSDc": 200,
 }
 V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
