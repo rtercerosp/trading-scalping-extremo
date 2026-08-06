@@ -223,13 +223,16 @@ class TradingBrain:
 
     def get_zero_loss_params(self, symbol: str) -> dict:
         defaults = {
-            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.50),
-            "break_even_buffer_points": getattr(config, "V10_BREAK_EVEN_BUFFER_POINTS", 2),
-            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.30),
+            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.40),
+            "break_even_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}).get(symbol, 0),
+            "break_even_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}).get(symbol, 0),
+            "break_even_buffer_points": 2,
+            "broker_cost_coverage": getattr(config, "V10_BROKER_COST_COVERAGE", {}).get(symbol, {"spread_points": 0, "commission_per_lot": 0.0, "min_profit_points": 0}),
+            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
             "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
-            "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.25),
+            "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.15),
             "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
-            "trailing_aggressive_offset_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_PCT", 0.0015),
+            "trailing_aggressive_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}).get(symbol, 20),
             "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
             "compounding_min_equity": getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0),
             "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),

@@ -108,19 +108,30 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
 
 # --- 6b-II. CONFIGURACIÓN V10 ZERO LOSS SCALPING ---
 V10_ZERO_LOSS_ENABLED: bool = True
-V10_BREAK_EVEN_TRIGGER_PCT: float = 0.30
-V10_BREAK_EVEN_BUFFER_POINTS: int = 2
-V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
-    "EURUSD": 50,
-    "EURUSDc": 50,
-    "GBPUSD": 60,
-    "GBPUSDc": 60,
+V10_BREAK_EVEN_TRIGGER_PCT: float = 0.40
+V10_BREAK_EVEN_MIN_TRIGGER_POINTS: dict[str, int] = {
+    "EURUSD": 80,
+    "EURUSDc": 80,
+    "GBPUSD": 100,
+    "GBPUSDc": 100,
     "USDJPY": 300,
     "USDJPYc": 300,
-    "XAUUSD": 500,
-    "XAUUSDc": 500,
+    "XAUUSD": 5000,
+    "XAUUSDc": 5000,
     "ETHUSD": 200,
     "ETHUSDc": 200,
+}
+V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
+    "EURUSD": 200,
+    "EURUSDc": 200,
+    "GBPUSD": 250,
+    "GBPUSDc": 250,
+    "USDJPY": 1000,
+    "USDJPYc": 1000,
+    "XAUUSD": 8000,
+    "XAUUSDc": 8000,
+    "ETHUSD": 500,
+    "ETHUSDc": 500,
 }
 V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
@@ -129,16 +140,27 @@ V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "GBPUSDc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 4},
     "USDJPY": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
     "USDJPYc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
-    "XAUUSD": {"spread_points": 240, "commission_per_lot": 0.0, "min_profit_points": 50},
-    "XAUUSDc": {"spread_points": 240, "commission_per_lot": 0.0, "min_profit_points": 50},
-    "ETHUSD": {"spread_points": 100, "commission_per_lot": 0.0, "min_profit_points": 30},
-    "ETHUSDc": {"spread_points": 100, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "XAUUSD": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "XAUUSDc": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "ETHUSD": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "ETHUSDc": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 30},
 }
 V10_REVERSE_PROTECTION_PCT: float = 0.25
 V10_GAP_PROTECTION_PCT: float = 0.003
-V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT: float = 0.20
-V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT: float = 0.002
-V10_TRAILING_AGGRESSIVE_OFFSET_PCT: float = 0.001
+V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT: float = 0.15
+V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT: float = 0.003
+V10_TRAILING_AGGRESSIVE_OFFSET_POINTS: dict[str, int] = {
+    "EURUSD": 15,
+    "EURUSDc": 15,
+    "GBPUSD": 20,
+    "GBPUSDc": 20,
+    "USDJPY": 100,
+    "USDJPYc": 100,
+    "XAUUSD": 500,
+    "XAUUSDc": 500,
+    "ETHUSD": 50,
+    "ETHUSDc": 50,
+}
 V10_COMPOUNDING_VOLUME_MULTIPLIER: float = 2.0
 V10_COMPOUNDING_MIN_EQUITY: float = 5000.0
 V10_SPREAD_MAX_POINTS_MULTIPLIER: float = 1.5
@@ -151,10 +173,10 @@ V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
     "GBPUSDc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
     "USDJPY": {"min_broker_coverage_points": 10, "multiplier": 2.0},
     "USDJPYc": {"min_broker_coverage_points": 10, "multiplier": 2.0},
-    "XAUUSD": {"min_broker_coverage_points": 240, "multiplier": 1.5},
-    "XAUUSDc": {"min_broker_coverage_points": 240, "multiplier": 1.5},
-    "ETHUSD": {"min_broker_coverage_points": 100, "multiplier": 1.5},
-    "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 1.5},
+    "XAUUSD": {"min_broker_coverage_points": 30, "multiplier": 1.5},
+    "XAUUSDc": {"min_broker_coverage_points": 30, "multiplier": 1.5},
+    "ETHUSD": {"min_broker_coverage_points": 30, "multiplier": 1.5},
+    "ETHUSDc": {"min_broker_coverage_points": 30, "multiplier": 1.5},
 }
 
 # --- 6c. CONFIGURACIÓN DE ESTRATEGIA FIBONACCI SCALP ---

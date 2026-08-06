@@ -42,20 +42,21 @@ class BreakEvenManager:
         from utils.symbol_utils import normalize_symbol
         symbol_key = normalize_symbol(symbol)
         defaults = {
-            "break_even_trigger_pct": 0.30,
-            "break_even_buffer_points": 2,
+            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.40),
+            "break_even_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}).get(symbol_key, 0),
             "break_even_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}).get(symbol_key, 0),
+            "break_even_buffer_points": 2,
             "broker_cost_coverage": getattr(config, "V10_BROKER_COST_COVERAGE", {}).get(symbol_key, {"spread_points": 0, "commission_per_lot": 0.0, "min_profit_points": 0}),
-            "reverse_protection_pct": 0.25,
-            "gap_protection_pct": 0.003,
-            "pre_breakeven_max_sl_improvement_pct": 0.20,
-            "trailing_aggressive_activation_pct": 0.002,
-            "trailing_aggressive_offset_pct": 0.001,
-            "compounding_volume_multiplier": 2.0,
-            "compounding_min_equity": 5000.0,
-            "spread_max_points_multiplier": 1.5,
-            "min_broker_coverage_points": 2,
-            "max_volume_per_candle_ratio": 0.05,
+            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
+            "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+            "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.15),
+            "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
+            "trailing_aggressive_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}).get(symbol_key, 20),
+            "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+            "compounding_min_equity": getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0),
+            "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
+            "min_broker_coverage_points": getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2),
+            "max_volume_per_candle_ratio": getattr(config, "V10_MAX_VOLUME_PER_CANDLE_RATIO", 0.05),
         }
         if self.trading_brain and hasattr(self.trading_brain, 'get_zero_loss_params'):
             params = self.trading_brain.get_zero_loss_params(symbol)
@@ -214,17 +215,21 @@ class BreakEvenManager:
                 tickets_to_remove.append(position_ticket)
                 continue
 
-            breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.30)
+            breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.40)
+            min_trigger_points = params.get("break_even_min_trigger_points", 0)
             max_trigger_points = params.get("break_even_max_trigger_points", 0)
             if initial_tp > 0:
                 total_tp_distance = abs(initial_tp - entry_price)
                 if total_tp_distance > 0:
                     trigger_distance_pct = total_tp_distance * breakeven_trigger_pct
-                    if max_trigger_points > 0:
-                        max_trigger_distance = max_trigger_points * point
-                        breakeven_trigger_distance = min(trigger_distance_pct, max_trigger_distance)
+                    min_trigger_distance = min_trigger_points * point if min_trigger_points > 0 else 0
+                    if min_trigger_distance > 0:
+                        breakeven_trigger_distance = max(trigger_distance_pct, min_trigger_distance)
                     else:
                         breakeven_trigger_distance = trigger_distance_pct
+                    if max_trigger_points > 0:
+                        max_trigger_distance = max_trigger_points * point
+                        breakeven_trigger_distance = min(breakeven_trigger_distance, max_trigger_distance)
                     
                     breakeven_trigger_price = entry_price + breakeven_trigger_distance if signal_type == SignalType.BUY else entry_price - breakeven_trigger_distance
                     details['breakeven_trigger_price'] = breakeven_trigger_price
@@ -325,8 +330,8 @@ class BreakEvenManager:
                             print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error cerrando posición por reverse protection {position_ticket}: {e}")
 
             if details.get('breakeven_triggered') and not details.get('reverse_protection_triggered'):
-                aggressive_activation = params.get("trailing_aggressive_activation_pct", 0.002)
-                aggressive_offset = params.get("trailing_aggressive_offset_pct", 0.001)
+                aggressive_activation = params.get("trailing_aggressive_activation_pct", 0.003)
+                aggressive_offset_points = params.get("trailing_aggressive_offset_points", 20)
                 profit_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
                 if signal_type == SignalType.SELL:
                     profit_pct = -profit_pct
@@ -334,8 +339,9 @@ class BreakEvenManager:
                 if profit_pct >= aggressive_activation:
                     buffer_points = params.get("break_even_buffer_points", 2)
                     buffer = max(buffer_points * point, point)
+                    offset = aggressive_offset_points * point
                     if signal_type == SignalType.BUY:
-                        trailing_sl = current_price * (1.0 - aggressive_offset)
+                        trailing_sl = current_price - offset
                         new_sl = max(details.get('current_sl', entry_price), trailing_sl)
                         if new_sl < current_price - buffer:
                             try:
@@ -350,7 +356,7 @@ class BreakEvenManager:
                             except Exception as e:
                                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL agresivo de posición {position_ticket}: {e}")
                     else:
-                        trailing_sl = current_price * (1.0 + aggressive_offset)
+                        trailing_sl = current_price + offset
                         new_sl = min(details.get('current_sl', entry_price), trailing_sl)
                         if new_sl > current_price + buffer:
                             try:
