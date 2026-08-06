@@ -5,7 +5,7 @@ from portfolio.portfolio import Portfolio
 from notifications.notifications import NotificationService
 from events.events import OrderEvent, ExecutionEvent, PlacedPendingOrderEvent, SignalType
 from utils.utils import Utils
-from utils.symbol_utils import normalize_symbol
+from utils.symbol_utils import normalize_symbol, get_asset_category
 import pandas as pd
 from queue import Queue 
 import MetaTrader5 as mt5
@@ -227,7 +227,6 @@ class OrderExecutor():
         price = symbol_info.ask if order_event.signal == "BUY" else symbol_info.bid
 
         # TP dinámico basado en S/R para oro y forex (V10)
-        from utils.symbol_utils import get_asset_category, normalize_symbol
         asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
         if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING" and asset_cat in ("gold", "forex"):
             dynamic_tp = self._calculate_dynamic_tp(order_event.symbol, order_event.signal, price, order_event.sl, asset_cat, symbol_info)
