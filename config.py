@@ -28,7 +28,7 @@ BACKTEST_TIMEFRAME: str = "5min"
 PORTFOLIO_MAX_TOTAL_POSITIONS: int = 12
 PORTFOLIO_MAX_POSITIONS_PER_SYMBOL: int = 3
 PORTFOLIO_MAX_POSITIONS_BY_SYMBOL: dict[str, int] = {
-    "BTCUSD": 3, "ETHUSD": 3, "XAUUSD": 3, "EURUSD": 3
+    "BTCUSD": 3, "ETHUSD": 2, "XAUUSD": 3, "EURUSD": 3
 }
 PORTFOLIO_MAX_POSITIONS_BY_CATEGORY: dict[str, int] = {
     "crypto": 6, "gold": 3, "forex": 3
