@@ -120,6 +120,8 @@ V10_BREAK_EVEN_MIN_TRIGGER_POINTS: dict[str, int] = {
     "XAUUSDc": 3000,
     "ETHUSD": 60,
     "ETHUSDc": 60,
+    "BTCUSD": 100,
+    "BTCUSDc": 100,
 }
 V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
     "EURUSD": 60,
@@ -132,6 +134,8 @@ V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
     "XAUUSDc": 6000,
     "ETHUSD": 200,
     "ETHUSDc": 200,
+    "BTCUSD": 500,
+    "BTCUSDc": 500,
 }
 V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
@@ -144,6 +148,8 @@ V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "XAUUSDc": {"spread_points": 250, "commission_per_lot": 0.0, "min_profit_points": 50},
     "ETHUSD": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
     "ETHUSDc": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
+    "BTCUSD": {"spread_points": 500, "commission_per_lot": 0.0, "min_profit_points": 100},
+    "BTCUSDc": {"spread_points": 500, "commission_per_lot": 0.0, "min_profit_points": 100},
 }
 V10_REVERSE_PROTECTION_PCT: float = 0.25
 V10_GAP_PROTECTION_PCT: float = 0.003
@@ -160,6 +166,8 @@ V10_TRAILING_AGGRESSIVE_OFFSET_POINTS: dict[str, int] = {
     "XAUUSDc": 500,
     "ETHUSD": 50,
     "ETHUSDc": 50,
+    "BTCUSD": 200,
+    "BTCUSDc": 200,
 }
 V10_COMPOUNDING_VOLUME_MULTIPLIER: float = 2.0
 V10_COMPOUNDING_MIN_EQUITY: float = 5000.0
@@ -177,6 +185,8 @@ V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
     "XAUUSDc": {"min_broker_coverage_points": 300, "multiplier": 2.0},
     "ETHUSD": {"min_broker_coverage_points": 100, "multiplier": 2.5},
     "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 2.5},
+    "BTCUSD": {"min_broker_coverage_points": 500, "multiplier": 2.0},
+    "BTCUSDc": {"min_broker_coverage_points": 500, "multiplier": 2.0},
 }
 
 # --- 6c. CONFIGURACIÓN DE ESTRATEGIA FIBONACCI SCALP ---
