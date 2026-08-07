@@ -44,6 +44,8 @@ from .signals.signal_btc_extreme import SignalBTCExtreme
 from .signals.signal_candlestick import SignalCandlestickPatterns
 from .signals.signal_fib_scalp import SignalFibScalp
 from .signals.signal_bollinger_bands import SignalBollingerBands
+from .signals.signal_crypto_volatility_breakout import SignalCryptoVolatilityBreakout
+from .signals.signal_gold_momentum_reversal import SignalGoldMomentumReversal
 from utils.utils import Utils
 from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, get_asset_category, normalize_symbol
 from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
@@ -179,6 +181,10 @@ class SignalGenerator(ISignalGenerator):
             sl_atr_mult=1.2,
             tp_atr_mult=2.0,
         ), connector=connector))
+
+        # Estrategias de V11 y V12
+        self.strategies.append(SignalCryptoVolatilityBreakout(name="SignalCryptoVolatilityBreakout", version=1, params={}))
+        self.strategies.append(SignalGoldMomentumReversal(name="SignalGoldMomentumReversal", version=1, params={}))
 
         self._build_asset_strategy_map()
 
@@ -472,20 +478,25 @@ class SignalGenerator(ISignalGenerator):
         buy_signals = [(s, se) for s, se in signal_candidates if se.signal == "BUY"]
         sell_signals = [(s, se) for s, se in signal_candidates if se.signal == "SELL"]
 
-        # Umbral de calidad por activo para V10
-        if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+        # Umbral de calidad por versión
+        if config.STRATEGY_VERSION == "V12_UNIVERSAL_AGGRESSIVE":
+            quality_threshold = 65.0
+        elif config.STRATEGY_VERSION == "V11_CRYPTO_VOLATILITY":
+            quality_threshold = 65.0
+        elif config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
             asset_key = self._normalize_symbol(data_event.symbol)
             high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
             quality_threshold = 60.0 if asset_key in high_sl_assets else 60.0
         elif config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY":
             quality_threshold = 75.0
         else:
-            quality_threshold = 60.0
+            quality_threshold = 60.0 # Default para V8 y anteriores
         
         buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
         sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 
-        consensus_threshold = 1 if config.STRATEGY_VERSION in ("V8_EXTREME_SCALPING", "V10_ZERO_LOSS_SCALPING") else 2
+        aggressive_versions = ("V8_EXTREME_SCALPING", "V10_ZERO_LOSS_SCALPING", "V11_CRYPTO_VOLATILITY", "V12_UNIVERSAL_AGGRESSIVE")
+        consensus_threshold = 1 if config.STRATEGY_VERSION in aggressive_versions else 2
 
         logging.info("SIGNAL GENERATOR: consensus buy=%d sell=%d threshold=%d symbol=%s", len(buy_signals), len(sell_signals), consensus_threshold, data_event.symbol)
 

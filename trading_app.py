@@ -302,6 +302,33 @@ if __name__ == "__main__":
                 "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
             "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
+            set_active=False,
+        )
+        # Register V11_CRYPTO_VOLATILITY
+        trading_brain.register_current_version(
+            "V11_CRYPTO_VOLATILITY",
+            "Scalping Extremo V11 Crypto Volatility",
+            {
+                "strategy": "V11_CRYPTO_VOLATILITY",
+                "description": "Hereda V10 y aplica parámetros hiper-agresivos y una nueva estrategia de breakout para criptomonedas.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "new_strategy": "SignalCryptoVolatilityBreakout",
+            },
+            "Versión V11 que especializa V10 para criptomonedas con parámetros de break-even y trailing stop más agresivos, y una nueva estrategia de breakout de volatilidad.",
+            set_active=False,
+        )
+        # Register V12_UNIVERSAL_AGGRESSIVE
+        trading_brain.register_current_version(
+            "V12_UNIVERSAL_AGGRESSIVE",
+            "Scalping Extremo V12 Universal Aggressive",
+            {
+                "strategy": "V12_UNIVERSAL_AGGRESSIVE",
+                "description": "Extiende la filosofía agresiva de V11 a Oro y Forex, con parámetros de gestión de riesgo a medida y una nueva estrategia para Oro.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "aggressive_params": getattr(config, "V12_AGGRESSIVE_PARAMS", {}),
+                "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
+            },
+            "Versión V12 que universaliza la operativa agresiva. Hereda V11 para cripto y aplica nuevos parámetros para oro y forex. Introduce SignalGoldMomentumReversal.",
             set_active=True,
         )
 
@@ -332,7 +359,7 @@ if __name__ == "__main__":
                 "sl_atr_mult": 1.2,
                 "tp_atr_mult": 2.0,
                 "max_total_positions": 20,
-                "max_positions_per_symbol": 5,
+                "max_positions_per_symbol": 2,
                 "max_positions_by_category": {"crypto": 8, "gold": 8, "forex": 8},
                 "strategy": "Knowledge_Preloaded_Extreme_Scalping",
                 "ai_enabled": True,

@@ -279,7 +279,7 @@ class BreakEvenManager:
                         max_improvement = abs(initial_sl - entry_price) * pre_breakeven_pct if initial_sl != entry_price else 0
                         if max_improvement > 0:
                             if signal_type == SignalType.BUY:
-                                improved_sl = min(current_sl, entry_price + max_improvement)
+                                improved_sl = max(current_sl, entry_price - max_improvement)
                                 if improved_sl > current_sl:
                                     try:
                                         self.order_executor.modify_position_sl(position_ticket, improved_sl)
@@ -288,7 +288,7 @@ class BreakEvenManager:
                                     except Exception:
                                         pass
                             else:
-                                improved_sl = max(current_sl, entry_price - max_improvement)
+                                improved_sl = min(current_sl, entry_price + max_improvement)
                                 if improved_sl < current_sl:
                                     try:
                                         self.order_executor.modify_position_sl(position_ticket, improved_sl)

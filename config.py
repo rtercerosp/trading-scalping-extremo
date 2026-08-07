@@ -11,7 +11,7 @@ from datetime import timedelta
 
 # --- 1. CONFIGURACIÓN GENERAL DE TRADING ---
 MAGIC_NUMBER: int = 20260728 # Mantener el mismo Magic Number para la misma base de estrategia
-STRATEGY_VERSION: str = "V10_ZERO_LOSS_SCALPING"
+STRATEGY_VERSION: str = "V12_UNIVERSAL_AGGRESSIVE"
 
 # Lista de símbolos por defecto. Puede ser sobreescrita por la variable de entorno TRADING_SYMBOLS.
 DEFAULT_SYMBOLS: list[str] = ["BTCUSDc", "XAUUSDc", "ETHUSDc", "EURUSDc"]
@@ -28,7 +28,7 @@ BACKTEST_TIMEFRAME: str = "5min"
 PORTFOLIO_MAX_TOTAL_POSITIONS: int = 12
 PORTFOLIO_MAX_POSITIONS_PER_SYMBOL: int = 3
 PORTFOLIO_MAX_POSITIONS_BY_SYMBOL: dict[str, int] = {
-    "BTCUSD": 2, "ETHUSD": 2, "XAUUSD": 3, "EURUSD": 3
+    "BTCUSD": 3, "ETHUSD": 2, "XAUUSD": 3, "EURUSD": 3
 }
 PORTFOLIO_MAX_POSITIONS_BY_CATEGORY: dict[str, int] = {
     "crypto": 6, "gold": 3, "forex": 3
@@ -116,8 +116,8 @@ V10_BREAK_EVEN_MIN_TRIGGER_POINTS: dict[str, int] = {
     "GBPUSDc": 18,
     "USDJPY": 15,
     "USDJPYc": 15,
-    "XAUUSD": 3000,
-    "XAUUSDc": 3000,
+    "XAUUSD": 500,
+    "XAUUSDc": 500,
     "ETHUSD": 60,
     "ETHUSDc": 60,
     "BTCUSD": 100,
@@ -187,6 +187,35 @@ V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
     "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 2.5},
     "BTCUSD": {"min_broker_coverage_points": 500, "multiplier": 2.0},
     "BTCUSDc": {"min_broker_coverage_points": 500, "multiplier": 2.0},
+}
+
+# --- 6b-III. CONFIGURACIÓN V11 CRYPTO VOLATILITY (Heredado por V12) ---
+V11_CRYPTO_VOLATILITY_ENABLED: bool = True
+# Parámetros más agresivos para criptomonedas, que sobreescriben los de V10
+V11_CRYPTO_PARAMS: dict[str, dict] = {
+    "crypto": {
+        "break_even_trigger_pct": 0.35,      # Breakeven más rápido (35% del TP)
+        "reverse_protection_pct": 0.40,      # Cierre si retrocede 40% (más espacio)
+        "trailing_activation_pct": 0.0025,   # Trailing se activa antes
+        "trailing_offset_pct": 0.0012,       # Trailing más ajustado
+    }
+}
+
+# --- 6b-IV. CONFIGURACIÓN V12 UNIVERSAL AGGRESSIVE ---
+V12_UNIVERSAL_AGGRESSIVE_ENABLED: bool = True
+V12_AGGRESSIVE_PARAMS: dict[str, dict] = {
+    "gold": {
+        "break_even_trigger_pct": 0.30,
+        "reverse_protection_pct": 0.35,
+        "trailing_activation_pct": 0.0020,
+        "trailing_offset_pct": 0.0010,
+    },
+    "forex": {
+        "break_even_trigger_pct": 0.40,
+        "reverse_protection_pct": 0.45,
+        "trailing_activation_pct": 0.0015,
+        "trailing_offset_pct": 0.0008,
+    }
 }
 
 # --- 6c. CONFIGURACIÓN DE ESTRATEGIA FIBONACCI SCALP ---

@@ -222,24 +222,46 @@ class TradingBrain:
         return result
 
     def get_zero_loss_params(self, symbol: str) -> dict:
-        defaults = {
-            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
+        """Expone parámetros V10/V11/V12 al BreakEvenManager."""
+        strategy_version = getattr(config, "STRATEGY_VERSION", "V10_ZERO_LOSS_SCALPING")
+        asset_category = get_asset_category(symbol)
+
+        # Start with V10 defaults as a base
+        params = {
+            "enabled": getattr(config, "V10_ZERO_LOSS_ENABLED", True),
+            "break_even_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.50),
             "break_even_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}).get(symbol, 0),
             "break_even_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}).get(symbol, 0),
             "break_even_buffer_points": 2,
             "broker_cost_coverage": getattr(config, "V10_BROKER_COST_COVERAGE", {}).get(symbol, {"spread_points": 0, "commission_per_lot": 0.0, "min_profit_points": 0}),
-            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
+            "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.30),
             "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
             "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.15),
-            "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
-            "trailing_aggressive_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}).get(symbol, 20),
+            "trailing_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
+            "trailing_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}).get(symbol, 20), # V10 uses points
             "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
             "compounding_min_equity": getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0),
             "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             "min_broker_coverage_points": getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2),
             "max_volume_per_candle_ratio": getattr(config, "V10_MAX_VOLUME_PER_CANDLE_RATIO", 0.05),
         }
-        return defaults
+
+        if strategy_version == "V12_UNIVERSAL_AGGRESSIVE" and getattr(config, "V12_UNIVERSAL_AGGRESSIVE_ENABLED", False):
+            # V12 applies to gold/forex, and inherits V11 for crypto
+            if asset_category == 'crypto' and hasattr(config, "V11_CRYPTO_PARAMS"):
+                params.update(config.V11_CRYPTO_PARAMS.get(asset_category, {}))
+            elif asset_category in getattr(config, "V12_AGGRESSIVE_PARAMS", {}):
+                params.update(config.V12_AGGRESSIVE_PARAMS.get(asset_category, {}))
+
+        elif strategy_version == "V11_CRYPTO_VOLATILITY" and getattr(config, "V11_CRYPTO_VOLATILITY_ENABLED", False):
+            if asset_category == 'crypto' and hasattr(config, "V11_CRYPTO_PARAMS"):
+                params.update(config.V11_CRYPTO_PARAMS.get(asset_category, {}))
+
+        # If a percentage-based offset is provided by V11/V12, remove the point-based one from V10
+        if 'trailing_offset_pct' in params:
+            params.pop('trailing_offset_points', None)
+
+        return params
 
     def record_execution(self, execution_event: ExecutionEvent) -> None:
         if not self.brain_enabled:
