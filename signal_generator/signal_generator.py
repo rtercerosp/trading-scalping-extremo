@@ -24,7 +24,7 @@ from .signals.signal_trend_pullback import SignalTrendPullback
 from .signals.signal_breakout import SignalBreakout
 from .signals.signal_momentum import SignalMomentum
 from utils.utils import Utils
-from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, get_asset_category, normalize_symbol
+from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, INDEX_SYMBOLS, COMMODITY_SYMBOLS, get_asset_category, normalize_symbol
 from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
 import config
 
@@ -47,7 +47,7 @@ from .signals.signal_bollinger_bands import SignalBollingerBands
 from .signals.signal_crypto_volatility_breakout import SignalCryptoVolatilityBreakout
 from .signals.signal_gold_momentum_reversal import SignalGoldMomentumReversal
 from utils.utils import Utils
-from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, get_asset_category, normalize_symbol
+from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, INDEX_SYMBOLS, COMMODITY_SYMBOLS, get_asset_category, normalize_symbol
 from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
 import config
 
@@ -55,12 +55,16 @@ ASSET_TIMEFRAME_CONFIG = {
     "crypto": {"entry": "15min", "trend": "30min", "rsi": "15min"},
     "gold": {"entry": "15min", "trend": "30min", "rsi": "15min"},
     "forex": {"entry": "5min", "trend": "15min", "rsi": "5min"},
+    "index": {"entry": "5min", "trend": "15min", "rsi": "5min"},
+    "commodity": {"entry": "15min", "trend": "30min", "rsi": "15min"},
 }
 
 ASSET_RISK_CONFIG = {
     "crypto": {"sl_atr_mult": 1.4, "tp_atr_mult": 2.2, "rsi_upper": 72.0, "rsi_lower": 28.0},
     "gold": {"sl_atr_mult": 1.3, "tp_atr_mult": 2.0, "rsi_upper": 70.0, "rsi_lower": 30.0},
     "forex": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.0, "rsi_upper": 70.0, "rsi_lower": 30.0},
+    "index": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.0, "rsi_upper": 72.0, "rsi_lower": 28.0},
+    "commodity": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.2, "rsi_upper": 70.0, "rsi_lower": 30.0},
 }
 
 
@@ -215,11 +219,25 @@ class SignalGenerator(ISignalGenerator):
                     self.asset_strategies.setdefault(symbol, [])
                     if strategy not in self.asset_strategies[symbol]:
                         self.asset_strategies[symbol].append(strategy)
+                for symbol in INDEX_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "index")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+                for symbol in COMMODITY_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "commodity")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
             elif asset_category_override:
                 if asset_category_override == "crypto":
                     universe = CRYPTO_SYMBOLS
                 elif asset_category_override == "gold":
                     universe = GOLD_SYMBOLS
+                elif asset_category_override == "index":
+                    universe = INDEX_SYMBOLS
+                elif asset_category_override == "commodity":
+                    universe = COMMODITY_SYMBOLS
                 else:
                     universe = FOREX_SYMBOLS
                 for symbol in universe:

@@ -163,7 +163,7 @@ class Portfolio():
         all_positions = self.get_strategy_open_positions()
         total_positions = len(all_positions)
         symbols = {}
-        category_counts = {"crypto": 0, "gold": 0, "forex": 0}
+        category_counts = {"crypto": 0, "gold": 0, "forex": 0, "index": 0, "commodity": 0}
         for position in all_positions:
             if position.symbol not in symbols:
                 symbols[position.symbol] = 0

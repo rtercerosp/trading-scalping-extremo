@@ -11,10 +11,10 @@ from datetime import timedelta
 
 # --- 1. CONFIGURACIÓN GENERAL DE TRADING ---
 MAGIC_NUMBER: int = 20260728 # Mantener el mismo Magic Number para la misma base de estrategia
-STRATEGY_VERSION: str = "V12_UNIVERSAL_AGGRESSIVE"
+STRATEGY_VERSION: str = "V13_DEMO_CLEAN_SLATE"
 
 # Lista de símbolos por defecto. Puede ser sobreescrita por la variable de entorno TRADING_SYMBOLS.
-DEFAULT_SYMBOLS: list[str] = ["BTCUSDc", "XAUUSDc", "ETHUSDc", "EURUSDc"]
+DEFAULT_SYMBOLS: list[str] = ["XAUUSDc", "EURUSDc", "USDJPYc", "US500", "USTEC", "BTCUSDc", "US30", "ETHUSDc", "UKOIL"]
 
 # --- 2. CONFIGURACIÓN DE TIMEFRAMES ---
 ENTRY_TIMEFRAME: str = "5min"
@@ -25,13 +25,14 @@ BACKTEST_DAYS: int = 30
 BACKTEST_TIMEFRAME: str = "5min"
 
 # --- 4. CONFIGURACIÓN DE LA CARTERA (PORTFOLIO) ---
-PORTFOLIO_MAX_TOTAL_POSITIONS: int = 12
+PORTFOLIO_MAX_TOTAL_POSITIONS: int = 18
 PORTFOLIO_MAX_POSITIONS_PER_SYMBOL: int = 3
 PORTFOLIO_MAX_POSITIONS_BY_SYMBOL: dict[str, int] = {
-    "BTCUSD": 3, "ETHUSD": 2, "XAUUSD": 3, "EURUSD": 3
+    "BTCUSD": 3, "ETHUSD": 2, "XAUUSD": 3, "EURUSD": 3,
+    "USDJPY": 2, "US500": 2, "USTEC": 2, "US30": 2, "UKOIL": 2
 }
 PORTFOLIO_MAX_POSITIONS_BY_CATEGORY: dict[str, int] = {
-    "crypto": 6, "gold": 3, "forex": 3
+    "crypto": 6, "gold": 3, "forex": 4, "index": 6, "commodity": 2
 }
 
 # --- 5. CONFIGURACIÓN DEL GESTOR DE RIESGO ---
@@ -104,6 +105,46 @@ EXTREME_SCALPING_PARAMS: dict[str, dict] = {
         "exclude_if_win_rate_below": 0.43,
         "priority": 4,
     },
+    "US500": {
+        "enabled": True,
+        "sl_atr_mult": 0.9,
+        "tp_atr_mult": 2.0,
+        "risk_pct": 0.006,
+        "trailing_activation_pct": 0.002,
+        "trailing_offset_pct": 0.0015,
+        "min_win_rate_for_trading": 0.52,
+        "exclude_if_win_rate_below": 0.42,
+    },
+    "USTEC": {
+        "enabled": True,
+        "sl_atr_mult": 0.95,
+        "tp_atr_mult": 2.2,
+        "risk_pct": 0.007,
+        "trailing_activation_pct": 0.0022,
+        "trailing_offset_pct": 0.0016,
+        "min_win_rate_for_trading": 0.52,
+        "exclude_if_win_rate_below": 0.42,
+    },
+    "US30": {
+        "enabled": True,
+        "sl_atr_mult": 0.9,
+        "tp_atr_mult": 2.0,
+        "risk_pct": 0.006,
+        "trailing_activation_pct": 0.002,
+        "trailing_offset_pct": 0.0015,
+        "min_win_rate_for_trading": 0.52,
+        "exclude_if_win_rate_below": 0.42,
+    },
+    "UKOIL": {
+        "enabled": True,
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 2.4,
+        "risk_pct": 0.008,
+        "trailing_activation_pct": 0.002,
+        "trailing_offset_pct": 0.0015,
+        "min_win_rate_for_trading": 0.50,
+        "exclude_if_win_rate_below": 0.40,
+    },
 }
 
 # --- 6b-II. CONFIGURACIÓN V10 ZERO LOSS SCALPING ---
@@ -118,10 +159,14 @@ V10_BREAK_EVEN_MIN_TRIGGER_POINTS: dict[str, int] = {
     "USDJPYc": 15,
     "XAUUSD": 500,
     "XAUUSDc": 500,
+    "US500": 50,
+    "USTEC": 50,
+    "US30": 100,
     "ETHUSD": 60,
     "ETHUSDc": 60,
     "BTCUSD": 100,
     "BTCUSDc": 100,
+    "UKOIL": 50,
 }
 V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
     "EURUSD": 60,
@@ -132,10 +177,14 @@ V10_BREAK_EVEN_MAX_TRIGGER_POINTS: dict[str, int] = {
     "USDJPYc": 80,
     "XAUUSD": 6000,
     "XAUUSDc": 6000,
+    "US500": 2000,
+    "USTEC": 2000,
+    "US30": 3000,
     "ETHUSD": 200,
     "ETHUSDc": 200,
     "BTCUSD": 500,
     "BTCUSDc": 500,
+    "UKOIL": 1000,
 }
 V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "EURUSD": {"spread_points": 8, "commission_per_lot": 0.0, "min_profit_points": 3},
@@ -146,10 +195,14 @@ V10_BROKER_COST_COVERAGE: dict[str, dict] = {
     "USDJPYc": {"spread_points": 10, "commission_per_lot": 0.0, "min_profit_points": 15},
     "XAUUSD": {"spread_points": 250, "commission_per_lot": 0.0, "min_profit_points": 50},
     "XAUUSDc": {"spread_points": 250, "commission_per_lot": 0.0, "min_profit_points": 50},
+    "US500": {"spread_points": 20, "commission_per_lot": 0.0, "min_profit_points": 5},
+    "USTEC": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 8},
+    "US30": {"spread_points": 30, "commission_per_lot": 0.0, "min_profit_points": 10},
     "ETHUSD": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
     "ETHUSDc": {"spread_points": 80, "commission_per_lot": 0.0, "min_profit_points": 30},
     "BTCUSD": {"spread_points": 500, "commission_per_lot": 0.0, "min_profit_points": 100},
     "BTCUSDc": {"spread_points": 500, "commission_per_lot": 0.0, "min_profit_points": 100},
+    "UKOIL": {"spread_points": 20, "commission_per_lot": 0.0, "min_profit_points": 10},
 }
 V10_REVERSE_PROTECTION_PCT: float = 0.25
 V10_GAP_PROTECTION_PCT: float = 0.003
@@ -164,10 +217,14 @@ V10_TRAILING_AGGRESSIVE_OFFSET_POINTS: dict[str, int] = {
     "USDJPYc": 100,
     "XAUUSD": 500,
     "XAUUSDc": 500,
+    "US500": 50,
+    "USTEC": 60,
+    "US30": 80,
     "ETHUSD": 50,
     "ETHUSDc": 50,
     "BTCUSD": 200,
     "BTCUSDc": 200,
+    "UKOIL": 100,
 }
 V10_COMPOUNDING_VOLUME_MULTIPLIER: float = 2.0
 V10_COMPOUNDING_MIN_EQUITY: float = 5000.0
@@ -183,10 +240,14 @@ V10_SPREAD_FILTER_BY_SYMBOL: dict[str, dict] = {
     "USDJPYc": {"min_broker_coverage_points": 15, "multiplier": 2.5},
     "XAUUSD": {"min_broker_coverage_points": 300, "multiplier": 2.0},
     "XAUUSDc": {"min_broker_coverage_points": 300, "multiplier": 2.0},
+    "US500": {"min_broker_coverage_points": 20, "multiplier": 2.5},
+    "USTEC": {"min_broker_coverage_points": 25, "multiplier": 2.5},
+    "US30": {"min_broker_coverage_points": 25, "multiplier": 2.5},
     "ETHUSD": {"min_broker_coverage_points": 100, "multiplier": 2.5},
     "ETHUSDc": {"min_broker_coverage_points": 100, "multiplier": 2.5},
     "BTCUSD": {"min_broker_coverage_points": 500, "multiplier": 2.0},
     "BTCUSDc": {"min_broker_coverage_points": 500, "multiplier": 2.0},
+    "UKOIL": {"min_broker_coverage_points": 20, "multiplier": 2.5},
 }
 
 # --- 6b-III. CONFIGURACIÓN V11 CRYPTO VOLATILITY (Heredado por V12) ---
@@ -215,6 +276,18 @@ V12_AGGRESSIVE_PARAMS: dict[str, dict] = {
         "reverse_protection_pct": 0.45,
         "trailing_activation_pct": 0.0015,
         "trailing_offset_pct": 0.0008,
+    },
+    "index": {
+        "break_even_trigger_pct": 0.35,
+        "reverse_protection_pct": 0.40,
+        "trailing_activation_pct": 0.0018,
+        "trailing_offset_pct": 0.0012,
+    },
+    "commodity": {
+        "break_even_trigger_pct": 0.35,
+        "reverse_protection_pct": 0.40,
+        "trailing_activation_pct": 0.0020,
+        "trailing_offset_pct": 0.0015,
     }
 }
 
@@ -245,11 +318,6 @@ LEARNING_ASSET_SPECIFIC_PARAMS: dict[str, dict] = {
         "tp_atr_mult": 2.2,
         "risk_pct": 0.003,
     },
-    "EURUSD": {
-        "sl_atr_mult": 0.8,
-        "tp_atr_mult": 2.0,
-        "risk_pct": 0.007,
-    },
     "ETHUSD": {
         "sl_atr_mult": 0.8,
         "tp_atr_mult": 3.5,
@@ -259,7 +327,37 @@ LEARNING_ASSET_SPECIFIC_PARAMS: dict[str, dict] = {
         "sl_atr_mult": 0.7,
         "tp_atr_mult": 3.5,
         "risk_pct": 0.010,
-    }
+    },
+    "EURUSD": {
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 2.0,
+        "risk_pct": 0.007,
+    },
+    "USDJPY": {
+        "sl_atr_mult": 0.85,
+        "tp_atr_mult": 2.2,
+        "risk_pct": 0.007,
+    },
+    "US500": {
+        "sl_atr_mult": 0.9,
+        "tp_atr_mult": 2.0,
+        "risk_pct": 0.006,
+    },
+    "USTEC": {
+        "sl_atr_mult": 0.95,
+        "tp_atr_mult": 2.2,
+        "risk_pct": 0.007,
+    },
+    "US30": {
+        "sl_atr_mult": 0.9,
+        "tp_atr_mult": 2.0,
+        "risk_pct": 0.006,
+    },
+    "UKOIL": {
+        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 2.4,
+        "risk_pct": 0.008,
+    },
 }
 
 # 7.4. Límites y Pasos del Motor de Aprendizaje (LearningEngine)

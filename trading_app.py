@@ -329,6 +329,21 @@ if __name__ == "__main__":
                 "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
             },
             "Versión V12 que universaliza la operativa agresiva. Hereda V11 para cripto y aplica nuevos parámetros para oro y forex. Introduce SignalGoldMomentumReversal.",
+            set_active=False,
+        )
+        # Register V13_DEMO_CLEAN_SLATE
+        trading_brain.register_current_version(
+            "V13_DEMO_CLEAN_SLATE",
+            "Scalping Extremo V13 Demo Clean Slate",
+            {
+                "strategy": "V13_DEMO_CLEAN_SLATE",
+                "description": "Nuevo proyecto demo con activos ampliados: oro, forex, índices y cripto. Base limpia, cerebro IA desde cero, máxima capacidad de análisis y ejecución.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "aggressive_params": getattr(config, "V12_AGGRESSIVE_PARAMS", {}),
+                "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
+                "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
+            },
+            "Versión V13 limpia para demo. Incluye todos los activos: oro, forex, índices US500/USTEC/US30, cripto BTC/ETH y UKOIL. Base sólida PRO para IA y ejecución.",
             set_active=True,
         )
 
@@ -425,6 +440,25 @@ if __name__ == "__main__":
                 "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
             "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
+        )
+        trading_brain.save_version_report(
+            "V13_DEMO_CLEAN_SLATE",
+            "Scalping Extremo V13 Demo Clean Slate",
+            {
+                "timeframe": config.ENTRY_TIMEFRAME,
+                "trend_timeframe": config.TREND_TIMEFRAME,
+                "risk_pct": config.SIZER_DEFAULT_RISK_PCT,
+                "max_leverage_factor": config.RISK_MAX_LEVERAGE_FACTOR,
+                "sl_atr_mult": config.LEARNING_DEFAULT_SL_ATR_MULT,
+                "tp_atr_mult": config.LEARNING_DEFAULT_TP_ATR_MULT,
+                "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
+                "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
+                "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+                "strategy": "V13_DEMO_CLEAN_SLATE",
+                "ai_enabled": True,
+                "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
+            },
+            "Version V13 limpia para demo. Incluye todos los activos: oro, forex, índices US500/USTEC/US30, cripto BTC/ETH y UKOIL. Base sólida PRO para IA y ejecución.",
         )
 
         try:

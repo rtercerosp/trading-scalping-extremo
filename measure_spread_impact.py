@@ -5,7 +5,7 @@ if not mt5.initialize():
     print('Failed to initialize MT5')
     exit()
 
-symbols = ['BTCUSDc', 'XAUUSDc', 'ETHUSDc', 'EURUSDc']
+symbols = ['XAUUSDc', 'EURUSDc', 'USDJPYc', 'US500', 'USTEC', 'BTCUSDc', 'US30', 'ETHUSDc', 'UKOIL']
 now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 print('='*70)
 print(f'MEDICIÓN DE SPREAD - {now}')
