@@ -107,6 +107,8 @@ if __name__ == "__main__":
         max_positions_per_symbol=config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
         max_positions_by_symbol=config.PORTFOLIO_MAX_POSITIONS_BY_SYMBOL,
         max_positions_by_category=config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+        max_notional_pct_per_trade=config.PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE,
+        connector=connector,
     )
 
     # --- FASE 2: INSTANCIACIÓN DEL CEREBRO Y MÓDULOS DE IA ---
@@ -331,19 +333,29 @@ if __name__ == "__main__":
             "Versión V12 que universaliza la operativa agresiva. Hereda V11 para cripto y aplica nuevos parámetros para oro y forex. Introduce SignalGoldMomentumReversal.",
             set_active=False,
         )
-        # Register V13_DEMO_CLEAN_SLATE
+        # Register V14_DIVERSIFIED_RISK_MANAGED
         trading_brain.register_current_version(
-            "V13_DEMO_CLEAN_SLATE",
-            "Scalping Extremo V13 Demo Clean Slate",
+            "V14_DIVERSIFIED_RISK_MANAGED",
+            "Scalping Extremo V14 Diversified Risk Managed",
             {
-                "strategy": "V13_DEMO_CLEAN_SLATE",
-                "description": "Nuevo proyecto demo con activos ampliados: oro, forex, índices y cripto. Base limpia, cerebro IA desde cero, máxima capacidad de análisis y ejecución.",
+                "strategy": "V14_DIVERSIFIED_RISK_MANAGED",
+                "description": "Versión V14 con gestión de riesgo diversificada: consenso estricto, límites de cartera reducidos, circuit breaker endurecido y R/R optimizado por categoría.",
                 "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
                 "aggressive_params": getattr(config, "V12_AGGRESSIVE_PARAMS", {}),
                 "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
                 "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
+                "key_changes": [
+                    "Consenso mínimo 2 estrategias",
+                    "Calidad mínima 70",
+                    "Max 12 posiciones totales, 2 por símbolo",
+                    "Notional máximo 25% equity por trade",
+                    "Circuit breaker diario 1%",
+                    "Circuit breaker por activo -8%/-15%/-20%",
+                    "R/R mínimo 1.2-1.5 según categoría",
+                    "Boost moderado top 2 activos",
+                ],
             },
-            "Versión V13 limpia para demo. Incluye todos los activos: oro, forex, índices US500/USTEC/US30, cripto BTC/ETH y UKOIL. Base sólida PRO para IA y ejecución.",
+            "Versión V14 con gestión de riesgo diversificada. Consenso estricto, límites reducidos, circuit breaker endurecido y reward-to-risk optimizado para scalping seguro.",
             set_active=True,
         )
 
@@ -442,8 +454,8 @@ if __name__ == "__main__":
             "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
         )
         trading_brain.save_version_report(
-            "V13_DEMO_CLEAN_SLATE",
-            "Scalping Extremo V13 Demo Clean Slate",
+            "V14_DIVERSIFIED_RISK_MANAGED",
+            "Scalping Extremo V14 Diversified Risk Managed",
             {
                 "timeframe": config.ENTRY_TIMEFRAME,
                 "trend_timeframe": config.TREND_TIMEFRAME,
@@ -454,17 +466,37 @@ if __name__ == "__main__":
                 "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
                 "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
                 "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
-                "strategy": "V13_DEMO_CLEAN_SLATE",
+                "strategy": "V14_DIVERSIFIED_RISK_MANAGED",
                 "ai_enabled": True,
                 "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
+                "max_notional_pct_per_trade": config.PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE,
+                "consensus_threshold": 2,
+                "quality_threshold_default": config.V13_QUALITY_THRESHOLD_DEFAULT,
+                "asset_circuit_breaker_enabled": True,
+                "asset_drawdown_warning_pct": config.ASSET_DRAWDOWN_WARNING_PCT,
+                "asset_drawdown_breaker_pct": config.ASSET_DRAWDOWN_BREAKER_PCT,
+                "asset_drawdown_exclude_pct": config.ASSET_DRAWDOWN_EXCLUDE_PCT,
+                "asset_breaker_cooldown_seconds": config.ASSET_BREAKER_COOLDOWN_SECONDS,
             },
-            "Version V13 limpia para demo. Incluye todos los activos: oro, forex, índices US500/USTEC/US30, cripto BTC/ETH y UKOIL. Base sólida PRO para IA y ejecución.",
+            "Version V14 con gestión de riesgo diversificada. Consenso estricto, límites reducidos, circuit breaker endurecido y reward-to-risk optimizado para scalping seguro.",
         )
 
         try:
             trading_brain.resume_open_positions(magic_number=config.MAGIC_NUMBER)
         except Exception as e:
             print(f"{Utils.dateprint()} - BRAIN: Error al reanudar posiciones abiertas: {e}")
+
+        try:
+            xau_positions = portfolio.get_strategy_open_positions_by_symbol("XAUUSD")
+            if len(xau_positions) > 2:
+                print(f"{Utils.dateprint()} - PORTFOLIO: Cerrando {len(xau_positions) - 2} posiciones preexistentes de XAUUSD para liberar cupo")
+                for pos in xau_positions[:len(xau_positions) - 2]:
+                    try:
+                        order_executor.close_position_by_ticket(pos.ticket)
+                    except Exception as e:
+                        print(f"{Utils.dateprint()} - Error cerrando posición {pos.ticket}: {e}")
+        except Exception as e:
+            print(f"{Utils.dateprint()} - Error revisando posiciones preexistentes de XAUUSD: {e}")
 
         trading_brain.reset_daily_circuit_breaker()
         logging.info("CIRCUIT BREAKER: Reset diario aplicado. Límite diario: %.2f%%", trading_brain._daily_loss_pct_limit * 100)

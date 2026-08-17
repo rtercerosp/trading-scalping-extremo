@@ -18,11 +18,11 @@ from utils.symbol_utils import symbol_matches
 class SignalSmartMoneyEURUSD(SignalSmartMoney):
     def __init__(self, properties: SmartMoneySignalProps, connector: PlatformConnector):
         super().__init__(properties, connector)
-        self._allowed_symbols = ["EURUSD", "EURUSD."]
+        self._allowed_symbols = ["EURUSD", "EURUSDc"]
 
     def set_timeframes(self, entry_timeframe: str, trend_timeframe: str | None = None, rsi_timeframe: str | None = None) -> None:
         super().set_timeframes(entry_timeframe, trend_timeframe, rsi_timeframe)
-        self._allowed_symbols = ["EURUSD", "EURUSD."]
+        self._allowed_symbols = ["EURUSD", "EURUSDc"]
 
     def generate_signal(self, data_event: DataEvent, data_provider: DataProvider,
                         portfolio: Portfolio, order_executor: OrderExecutor,

@@ -5,7 +5,7 @@ from typing import Dict
 from utils.symbol_utils import CRYPTO_SYMBOLS, get_asset_category, normalize_symbol
 
 class Portfolio():
-    def __init__(self, magic_number: int, max_total_positions: int = 999, max_positions_per_symbol: int = 99, max_positions_by_symbol: Dict[str, int] | None = None, max_positions_by_category: Dict[str, int] | None = None):
+    def __init__(self, magic_number: int, max_total_positions: int = 999, max_positions_per_symbol: int = 99, max_positions_by_symbol: Dict[str, int] | None = None, max_positions_by_category: Dict[str, int] | None = None, max_notional_pct_per_trade: float = 0.25, connector=None):
         self.magic = magic_number
         self.max_total_positions = max_total_positions
         self.max_positions_per_symbol = max_positions_per_symbol
@@ -14,6 +14,8 @@ class Portfolio():
         }
         self.max_positions_by_category = max_positions_by_category or {}
         self._crypto_symbols = CRYPTO_SYMBOLS
+        self.max_notional_pct_per_trade = max_notional_pct_per_trade
+        self.connector = connector
 
     def _safe_positions_get(self, symbol: str | None = None) -> tuple:
         """
@@ -122,12 +124,40 @@ class Portfolio():
         """
         return len(self.get_strategy_open_positions())
 
-    def can_open_position(self, symbol: str) -> bool:
+    def _get_position_notional_acc_ccy(self, position) -> float:
+        if self.connector is None:
+            return 0.0
+        try:
+            symbol_info = self.connector.get_symbol_info(position.symbol)
+            account_info = self.connector.get_account_info()
+            if symbol_info is None or account_info is None:
+                return 0.0
+            price = position.price_open
+            volume = position.volume
+            contract_size = getattr(symbol_info, 'trade_contract_size', 0.0)
+            if contract_size <= 0 or price <= 0 or volume <= 0:
+                return 0.0
+            notional = price * volume * contract_size
+            if getattr(symbol_info, 'currency_profit', '') != getattr(account_info, 'currency', ''):
+                return self.connector.convert_currency_amount_to_another_currency(notional, symbol_info.currency_profit, account_info.currency) or 0.0
+            return notional
+        except Exception:
+            return 0.0
+
+    def _get_total_open_notional_acc_ccy(self) -> float:
+        total = 0.0
+        for position in self.get_strategy_open_positions():
+            total += self._get_position_notional_acc_ccy(position)
+        return total
+
+    def can_open_position(self, symbol: str, boost_multiplier: float = 1.0, new_position_notional: float = 0.0) -> bool:
         """
         Checks if a new position can be opened based on portfolio limits.
 
         Args:
             symbol (str): The symbol to check.
+            boost_multiplier (float): Multiplicador de límite para el mejor activo.
+            new_position_notional (float): Notional estimado de la nueva posición en moneda de cuenta.
 
         Returns:
             bool: True if a new position can be opened, False otherwise.
@@ -138,6 +168,8 @@ class Portfolio():
 
         symbol_positions = self.get_number_of_strategy_open_positions_by_symbol(symbol)
         max_for_symbol = self.max_positions_by_symbol.get(normalize_symbol(symbol), self.max_positions_per_symbol)
+        if boost_multiplier > 1.0:
+            max_for_symbol = max(1, int(max_for_symbol * boost_multiplier))
         if symbol_positions["TOTAL"] >= max_for_symbol:
             return False
 
@@ -150,6 +182,16 @@ class Portfolio():
             )
             if category_positions >= max_for_category:
                 return False
+
+        if self.max_notional_pct_per_trade > 0 and new_position_notional > 0 and self.connector is not None:
+            try:
+                account_info = self.connector.get_account_info()
+                if account_info and account_info.equity > 0:
+                    max_notional = account_info.equity * self.max_notional_pct_per_trade
+                    if new_position_notional > max_notional:
+                        return False
+            except Exception:
+                pass
 
         return True
 

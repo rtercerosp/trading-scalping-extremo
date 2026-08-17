@@ -31,9 +31,10 @@ class SignalBTCExtreme(ISignalGenerator):
         extreme_params = getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("BTCUSD", {})
         self.sl_atr_mult = extreme_params.get("sl_atr_mult", 1.0)
         self.tp_atr_mult = extreme_params.get("tp_atr_mult", 4.0)
-        self.min_atr_points = 10
+        self.min_atr_points = 5
 
         self._asset_category = "crypto"
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     @staticmethod
     def _atr(bars: pd.DataFrame, period: int) -> pd.Series:
@@ -131,6 +132,8 @@ class SignalBTCExtreme(ISignalGenerator):
         symbol = data_event.symbol
         if asset_category != "crypto":
             return None
+        if not symbol_matches(symbol, self._allowed_symbols):
+            return None
 
         trend_bars = data_provider.get_latest_closed_bars(symbol, self.trend_timeframe, 50)
         entry_bars = data_provider.get_latest_closed_bars(symbol, self.entry_timeframe, 50)
@@ -187,8 +190,8 @@ class SignalBTCExtreme(ISignalGenerator):
         adx_series = self._adx(entry_high, entry_low, entry_close, 14)
         current_adx = adx_series.iloc[-1] if not pd.isna(adx_series.iloc[-1]) else 0
 
-        if current_adx < 10:
-            print(f"DEBUG BTC EXTREME: ADX={current_adx:.2f} debajo de 10")
+        if current_adx < 5:
+            print(f"DEBUG BTC EXTREME: ADX={current_adx:.2f} debajo de 5")
             return None
 
         ob_level = self._detect_order_block(entry_bars, "BUY" if trend_is_bullish else "SELL")
@@ -204,8 +207,7 @@ class SignalBTCExtreme(ISignalGenerator):
             and ema_fast.iloc[-1] > ema_slow.iloc[-1]
             and entry_close.iloc[-1] > ema_fast.iloc[-1]
             and entry_close.iloc[-1] > entry_close.iloc[-2]
-            and 35 <= current_rsi <= 80
-            and smc_level is not None
+            and 30 <= current_rsi <= 85
         )
 
         short_trigger = (
@@ -213,8 +215,7 @@ class SignalBTCExtreme(ISignalGenerator):
             and ema_fast.iloc[-1] < ema_slow.iloc[-1]
             and entry_close.iloc[-1] < ema_fast.iloc[-1]
             and entry_close.iloc[-1] < entry_close.iloc[-2]
-            and 20 <= current_rsi <= 65
-            and smc_level is not None
+            and 15 <= current_rsi <= 70
         )
 
         if long_trigger:

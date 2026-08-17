@@ -1,5 +1,6 @@
 # QUANTDEMY - https://quantdemy.com - Trading con Python y MetaTrader 5: Crea tu Propio Framework
 
+import logging
 from platform_connector.platform_connector import PlatformConnector
 from portfolio.portfolio import Portfolio
 from notifications.notifications import NotificationService
@@ -23,12 +24,14 @@ class OrderExecutor():
         self.trading_director = trading_director
         self.data_provider = data_provider
         self._error_blacklist: dict[str, float] = {}
-        self._error_blacklist_seconds = 60
+        self._error_blacklist_seconds = 5
 
     def execute_order(self, order_event: OrderEvent) -> None:
+        print(f"{Utils.dateprint()} - ORD EXEC: execute_order recibido para {order_event.symbol} {order_event.signal} volumen={order_event.volume} sl={order_event.sl} tp={order_event.tp} tp1={order_event.tp1} tp2={order_event.tp2}")
         if order_event.symbol in self._error_blacklist:
             last_error_time = self._error_blacklist[order_event.symbol]
             if time.time() - last_error_time < self._error_blacklist_seconds:
+                print(f"{Utils.dateprint()} - ORD EXEC: {order_event.symbol} en blacklist, se omite")
                 return
             del self._error_blacklist[order_event.symbol]
 
@@ -38,12 +41,22 @@ class OrderExecutor():
                 print(f"{Utils.dateprint()} - ORD EXEC: Límite de portfolio alcanzado. Se omite orden para {order_event.symbol} ({order_event.signal} {order_event.volume} lotes)")
                 return
 
+        # Validación PRE-TRADE estricta: mercado abierto, cuenta, volúmenes
+        valid, msg = self._validate_pre_trade(order_event)
+        if not valid:
+            print(f"{Utils.dateprint()} - ORD EXEC: Validación pre-trade fallida para {order_event.symbol}: {msg}")
+            self._blacklist_symbol(order_event.symbol)
+            return
+
         if order_event.target_order == "MARKET":
             if order_event.tp1 > 0.0 and order_event.tp2 > 0.0:
+                print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden dual para {order_event.symbol}")
                 self._execute_dual_entry_order(order_event)
             else:
+                print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden market simple para {order_event.symbol}")
                 self._execute_market_order(order_event)
         else:
+            print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden pendiente para {order_event.symbol}")
             self._send_pending_order(order_event)
 
     def _blacklist_symbol(self, symbol: str) -> None:
@@ -57,6 +70,16 @@ class OrderExecutor():
         is_tradable, tradable_msg = self.connector.is_symbol_tradable(order_event.symbol)
         if not is_tradable:
             return False, f"Símbolo {order_event.symbol} no es negociable: {tradable_msg}"
+
+        # Verificación ESTRICTA de mercado abierto sin caché
+        try:
+            market_status = self.connector.get_market_status(order_event.symbol)
+            if not market_status.get("open", True):
+                reason = market_status.get("reason", "market_closed")
+                return False, f"Mercado cerrado para {order_event.symbol}: {reason}. No se envía orden."
+        except Exception as e:
+            logging.error("ORD EXEC: Error verificando mercado para %s: %s", order_event.symbol, e)
+            return False, f"Error verificando estado de mercado para {order_event.symbol}"
 
         account_info = self.connector.get_account_info()
         if account_info is None or not account_info.trade_allowed:
@@ -105,21 +128,31 @@ class OrderExecutor():
         sl_distance_points = max(sl_distance_points, min_stop_points)
         tp_distance_points = max(tp_distance_points, min_stop_points)
 
-        # SL más amplio para activos con alta tasa de SL (respirar)
-        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+        strategy_version = getattr(config, "STRATEGY_VERSION", "")
+        # Enforzar mínimo riesgo/recompensa 1:1.5 para V13 scalping extremo
+        if strategy_version in ("V14_DIVERSIFIED_RISK_MANAGED", "V13_DEMO_CLEAN_SLATE", "V12_UNIVERSAL_AGGRESSIVE", "V11_CRYPTO_VOLATILITY", "V10_ZERO_LOSS_SCALPING"):
             symbol_key = normalize_symbol(symbol)
-            high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
-            if symbol_key in high_sl_assets:
-                sl_distance_points = sl_distance_points * 1.5  # 50% más de margen
             
-            min_tp_multiplier = 2.0
+            # Mínimo R/R para V13 scalping extremo
+            min_tp_multiplier = 1.2
             if asset_cat == "gold":
-                min_tp_multiplier = 2.5
+                min_tp_multiplier = 1.5
             elif asset_cat == "crypto":
-                min_tp_multiplier = 2.0
+                min_tp_multiplier = 1.5
+            elif asset_cat == "index":
+                min_tp_multiplier = 1.3
+            elif asset_cat == "commodity":
+                min_tp_multiplier = 1.4
+            
             min_tp_points = sl_distance_points * min_tp_multiplier
             if tp_distance_points < min_tp_points:
                 tp_distance_points = min_tp_points
+                print(f"{Utils.dateprint()} - ORD EXEC: V13 SCALPING - TP ajustado a mínimo R/R 1:{min_tp_multiplier:.1f} para {symbol} sl_pts={sl_distance_points:.1f} tp_pts={tp_distance_points:.1f}")
+            
+            # Asegurar que SL no sea mayor que TP (protección contra señales mal calculadas)
+            if sl_distance_points >= tp_distance_points:
+                tp_distance_points = sl_distance_points * min_tp_multiplier
+                print(f"{Utils.dateprint()} - ORD EXEC: V13 SCALPING - SL mayor que TP corregido para {symbol} sl_pts={sl_distance_points:.1f} tp_pts={tp_distance_points:.1f}")
         
         if signal == "BUY":
             sl = price - sl_distance_points * point
@@ -319,6 +352,15 @@ class OrderExecutor():
             error_message = f"Error al ejecutar Market Order {order_event.signal} para {order_event.symbol}: {result.comment} (retcode: {result.retcode})"
             print(f"{Utils.dateprint()} - {error_message}")
             print(f"{Utils.dateprint()} - ORD EXEC: Request: {market_order_request}")
+            
+            # Manejo específico de mercado cerrado (retcode 10018)
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)  # Blacklist extendida
+                error_message += " - MERCADO CERRADO"
+                logging.warning("ORD EXEC: Mercado cerrado para %s. Blacklist extendida a %d segundos.",
+                               order_event.symbol, self._error_blacklist_seconds)
+            
             self._blacklist_symbol(order_event.symbol)
             self.notification_service.send_notification(
                 title=f"❌ FALLO DE ORDEN - {order_event.symbol}",
@@ -338,9 +380,13 @@ class OrderExecutor():
             tp1=order_event.tp1,
             tp2=order_event.tp2,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
         if not skip_tp2_pending and order_event.tp1 > 0.0 and order_event.tp2 > 0.0:
             self._place_tp2_pending_order(order_event, result)
@@ -369,9 +415,13 @@ class OrderExecutor():
             tp2=order_event.tp2,
             volume=half_volume,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
 
         tp2_order = OrderEvent(
@@ -386,9 +436,13 @@ class OrderExecutor():
             tp2=order_event.tp2,
             volume=half_volume,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
 
         print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando entrada dual para {order_event.symbol} - Volumen total: {order_event.volume}, TP1: {order_event.tp1}, TP2: {order_event.tp2}")
@@ -444,6 +498,13 @@ class OrderExecutor():
         else:
             message = f"Error al colocar pending order {order_event.signal} {order_event.target_order} para {order_event.symbol}: {result.comment} (retcode: {result.retcode})"
             print(f"{Utils.dateprint()} - {message}")
+            
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)
+                message += " - MERCADO CERRADO"
+                logging.warning("ORD EXEC: Mercado cerrado para pending %s. Blacklist extendida.", order_event.symbol)
+            
             self._blacklist_symbol(order_event.symbol)
             self.notification_service.send_notification(
                 title=f"❌ FALLO DE ORDEN PENDIENTE - {order_event.symbol}",
@@ -504,6 +565,13 @@ class OrderExecutor():
             self._create_and_put_execution_event(result, exit_reason=exit_reason)
         else:
             print(f"{Utils.dateprint()} - Error al cerrar la posición {ticket} en {position.symbol} con volumen {close_volume}: {result.comment}")
+            
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)
+                logging.warning("ORD EXEC: Mercado cerrado al cerrar posición %s en %s. Blacklist extendida.",
+                               ticket, position.symbol)
+            
             self._blacklist_symbol(position.symbol)
 
     def close_strategy_long_positions_by_symbol(self, symbol: str) -> None:
@@ -530,7 +598,7 @@ class OrderExecutor():
             volume=order_event.volume)
         self.events_queue.put(placed_pending_order_event)
 
-    def _create_and_put_execution_event(self, order_result, tp1=0.0, tp2=0.0, strategy_name="UNKNOWN", asset_category="forex", market_regime="unknown", analysis_context=None, exit_reason: str = "OPEN") -> None:
+    def _create_and_put_execution_event(self, order_result, tp1=0.0, tp2=0.0, strategy_name="UNKNOWN", primary_strategy_name="UNKNOWN", asset_category="forex", market_regime="unknown", analysis_context=None, exit_reason: str = "OPEN", risk_pct_override: float = 0.0, quality_score: float = 0.0, justification: str = "") -> None:
         deal = None
         fill_time = datetime.now()
         position_ticket = 0
@@ -566,11 +634,15 @@ class OrderExecutor():
             position_ticket=position_ticket,
             strategy_type=strategy_name,
             strategy_name=strategy_name,
+            primary_strategy_name=primary_strategy_name or strategy_name,
             asset_category=asset_category,
             market_regime=market_regime,
             analysis_context=analysis_context,
             deal_ticket=deal_ticket,
             exit_reason=exit_reason,
+            risk_pct_override=risk_pct_override,
+            quality_score=quality_score,
+            justification=justification,
         )
 
         self.events_queue.put(execution_event)

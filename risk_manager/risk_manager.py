@@ -73,15 +73,8 @@ class RiskManager(IRiskManager):
 
     def _compute_value_of_position_in_account_currency(self, symbol: str, volume: float, position_type: int) -> float:
         """
-        Computes the value of a position in the account currency.
-
-        Args:
-            symbol (str): The symbol of the position.
-            volume (float): The volume of the position.
-            position_type (int): The type of the position.
-
-        Returns:
-            float: The value of the position in the account currency.
+        Computes the REQUIRED MARGIN of a position in the account currency.
+        Uses account leverage to convert notional value into margin requirement.
         """
         symbol_info = self.connector.get_symbol_info(symbol)
         if symbol_info is None:
@@ -101,21 +94,22 @@ class RiskManager(IRiskManager):
         # Unidades operadas en las unidades del symbol: (cantidad de moneda base, barriles de petroleo, onzas de oro)
         traded_units = volume * symbol_info.trade_contract_size
 
-        # Valor de las unidades operadas en la divisa cotizada del símbolo (USD para el oro, USD para el petróleo, CHF para el GBPCHF, EUR para el DAX)
-        price_key = 'ask' if position_type == 1 else 'bid' # position_type == 1 es SELL, se valora al ASK. position_type == 0 es BUY, se valora al BID.
+        # Valor de las unidades operadas en la divisa cotizada del símbolo
+        price_key = 'ask' if position_type == 1 else 'bid'
         market_price = latest_tick.get(price_key) or latest_tick.get('bid') or latest_tick.get('ask')
         if market_price is None:
             print(f"{Utils.dateprint()} - RISK MGMT: Tick incompleto para {symbol}.")
             return 0.0
         value_traded_in_profit_ccy = traded_units * market_price
 
-        # Valor de las unidades operadas en la divisa de nuestra cuenta de trading (la cuenta en el broker, la cuenta MT5)
+        # Valor en la divisa de la cuenta
         value_traded_in_account_ccy = self.connector.convert_currency_amount_to_another_currency(value_traded_in_profit_ccy, symbol_info.currency_profit, account_info.currency)
 
-        if position_type == 1: # SELL
-            return value_traded_in_account_ccy
-        else:
-            return value_traded_in_account_ccy
+        # Usar margen real considerando el leverage de la cuenta
+        account_leverage = getattr(account_info, 'leverage', 100) or 100
+        margin_required = value_traded_in_account_ccy / account_leverage
+
+        return margin_required
 
     def _create_and_put_order_event(self, sizing_event: SizingEvent, volume: float) -> None:
         """
@@ -139,9 +133,13 @@ class RiskManager(IRiskManager):
                                     tp2=sizing_event.tp2,
                                     volume=volume,
                                     strategy_name=sizing_event.strategy_name,
+                                    primary_strategy_name=sizing_event.primary_strategy_name,
                                     asset_category=sizing_event.asset_category,
                                     market_regime=sizing_event.market_regime,
-                                    analysis_context=sizing_event.analysis_context)
+                                    analysis_context=sizing_event.analysis_context,
+                                    risk_pct_override=sizing_event.risk_pct_override,
+                                    quality_score=sizing_event.quality_score,
+                                    justification=sizing_event.justification)
 
         self.events_queue.put(order_event)
     

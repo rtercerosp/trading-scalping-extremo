@@ -193,7 +193,7 @@ class SignalSmartMoney(ISignalGenerator):
 
     def _compute_tp_levels(self, entry_price: float, sl: float, atr_points: float, asset_category: str, signal_type: str = "BUY") -> tuple:
         if asset_category == "crypto":
-            tp1_mult = 0.8
+            tp1_mult = 1.2
             tp2_mult = 1.5
         elif asset_category == "gold":
             tp1_mult = 0.35

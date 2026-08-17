@@ -16,19 +16,38 @@ class PerformanceTracker:
                 "winning_trades": 0,
                 "losing_trades": 0,
                 "total_profit": 0.0,
+                "peak_profit": 0.0,
+                "max_drawdown": 0.0,
+                "current_drawdown": 0.0,
                 "avg_profit": 0.0,
                 "win_rate": 0.0,
+                "consecutive_losses": 0,
+                "last_trade_profit": 0.0,
             }
 
         perf = self.asset_performance[symbol_key]
         perf["total_trades"] += 1
         perf["total_profit"] += profit
+        perf["last_trade_profit"] = profit
         perf["avg_profit"] = perf["total_profit"] / perf["total_trades"]
 
         if profit > 0:
             perf["winning_trades"] += 1
+            perf["consecutive_losses"] = 0
+            if perf["total_profit"] > perf["peak_profit"]:
+                perf["peak_profit"] = perf["total_profit"]
         else:
             perf["losing_trades"] += 1
+            perf["consecutive_losses"] = perf.get("consecutive_losses", 0) + 1
+
+        if perf["peak_profit"] > 0:
+            dd = (perf["total_profit"] - perf["peak_profit"]) / perf["peak_profit"]
+            perf["current_drawdown"] = dd
+            if dd < perf["max_drawdown"]:
+                perf["max_drawdown"] = dd
+        elif profit < 0:
+            perf["current_drawdown"] = -1.0
+            perf["max_drawdown"] = -1.0
 
         perf["win_rate"] = perf["winning_trades"] / perf["total_trades"] if perf["total_trades"] > 0 else 0.0
 

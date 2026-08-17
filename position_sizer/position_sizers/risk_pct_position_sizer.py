@@ -46,6 +46,12 @@ class RiskPctPositionSizer(IPositionSizer):
             except Exception as e:
                 logger.error("RISK SIZER: Error obteniendo risk_pct adaptativo para %s: %s", signal_event.symbol, e, exc_info=True)
 
+        # Aplicar boost por mejor activo al riesgo
+        boost_multiplier = getattr(signal_event, 'boost_multiplier', 1.0)
+        if boost_multiplier > 1.0:
+            risk_pct *= boost_multiplier
+            print(f"{Utils.dateprint()} - BOOST: {signal_event.symbol} TOP performer - riesgo aumentado x{boost_multiplier:.1f} a {risk_pct:.2%}")
+
         if risk_pct <= 0.0:
             print(f"{Utils.dateprint()} - ERROR (RiskPctPositionSizer): El porcentaje de riesgo introducido: {risk_pct} no es válido.")
             return 0.0
@@ -110,11 +116,12 @@ class RiskPctPositionSizer(IPositionSizer):
             max_volume_by_equity = None
             if equity > 0 and entry_price > 0 and contract_size > 0:
                 notional_value = entry_price * contract_size
-                max_volume_by_equity = equity * 0.5 / notional_value
+                max_notional_pct = getattr(config, "PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE", 0.25)
+                max_volume_by_equity = equity * max_notional_pct / notional_value
                 max_volume_by_equity = max(symbol_info.volume_min, round(max_volume_by_equity / volume_step) * volume_step)
                 if max_volume_by_equity < volume:
                     volume = max_volume_by_equity
-                    print(f"{Utils.dateprint()} - RISK MGMT: Volumen limitado por equity a {max_volume_by_equity:.4f} lotes para {signal_event.symbol} (calculado: {monetary_risk / (price_distance_in_integer_ticksizes * tick_value_account_ccy):.4f})")
+                    print(f"{Utils.dateprint()} - RISK MGMT: Volumen limitado por notional por trade a {max_volume_by_equity:.4f} lotes para {signal_event.symbol} (calculado: {monetary_risk / (price_distance_in_integer_ticksizes * tick_value_account_ccy):.4f})")
 
             if self.max_leverage_factor and equity > 0 and entry_price > 0 and contract_size > 0:
                 notional_value = entry_price * contract_size
@@ -135,10 +142,15 @@ class RiskPctPositionSizer(IPositionSizer):
                     return 0.0
                 volume = volume_min
                 print(f"{Utils.dateprint()} - WARNING (RiskPctPositionSizer): Volumen ajustado a volume_min {volume_min} para {signal_event.symbol}.")
-        
+            
+            # Aplicar boost por mejor activo al volumen
+            boost_multiplier = getattr(signal_event, 'boost_multiplier', 1.0)
+            if boost_multiplier > 1.0:
+                volume = round(volume * boost_multiplier / volume_step) * volume_step
+                print(f"{Utils.dateprint()} - BOOST: {signal_event.symbol} TOP performer - volumen aumentado x{boost_multiplier:.1f} a {volume:.4f} lotes")
+            
+            return volume
+
         except Exception as e:
             print(f"{Utils.dateprint()} - ERROR: Problema al calcular el tamaño de la posición en función del riesgo. Excepción: {e}")
             return 0.0
-
-        else:
-            return volume

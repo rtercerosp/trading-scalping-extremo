@@ -37,6 +37,8 @@ class BreakEvenManager:
         self.positions_to_monitor: Dict[int, Dict] = {}
         self._trailing_activation_pct: float = 0.003
         self._trailing_offset_pct: float = 0.002
+        self._last_sl_update_ts: Dict[int, float] = {}
+        self._sl_update_throttle_seconds: float = 1.0
 
     def _get_zero_loss_params(self, symbol: str) -> dict:
         from utils.symbol_utils import normalize_symbol
@@ -58,6 +60,10 @@ class BreakEvenManager:
             "min_broker_coverage_points": getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2),
             "max_volume_per_candle_ratio": getattr(config, "V10_MAX_VOLUME_PER_CANDLE_RATIO", 0.05),
         }
+        if symbol_key == "ETHUSD":
+            defaults["reverse_protection_pct"] = 0.35
+            defaults["trailing_aggressive_activation_pct"] = 0.002
+            defaults["break_even_buffer_points"] = 3
         if self.trading_brain and hasattr(self.trading_brain, 'get_zero_loss_params'):
             params = self.trading_brain.get_zero_loss_params(symbol)
             if params:
@@ -119,9 +125,28 @@ class BreakEvenManager:
             'last_gap': 0.0,
             '_last_log_ts': 0.0,
             '_zero_loss_params': params,
+            'max_profit_reached': 0.0,
+            'partial_tp_taken': False,
         }
 
         print(f"{Utils.dateprint()} - BREAK EVEN MGR: Posición {position_ticket} ({symbol}) añadida para monitoreo V10 ZERO LOSS. TP: {initial_tp}, SL inicial: {initial_sl}")
+
+    def _can_update_sl(self, position_ticket: int) -> bool:
+        now = time.time()
+        last_ts = self._last_sl_update_ts.get(position_ticket, 0.0)
+        if now - last_ts < self._sl_update_throttle_seconds:
+            return False
+        self._last_sl_update_ts[position_ticket] = now
+        return True
+
+    def _apply_sl_update(self, position_ticket: int, new_sl: float) -> bool:
+        if not self._can_update_sl(position_ticket):
+            return False
+        try:
+            self.order_executor.modify_position_sl(position_ticket, new_sl)
+            return True
+        except Exception:
+            return False
 
     def resume_open_positions(self, magic_number: int) -> None:
         positions = self.connector.get_positions() or ()
@@ -214,6 +239,50 @@ class BreakEvenManager:
             if abs(dist_to_tp) > 5000 or abs(dist_to_entry) > 5000:
                 tickets_to_remove.append(position_ticket)
                 continue
+
+            # Track max profit reached for reverse protection AFTER breakeven
+            current_profit_points = dist_to_entry
+            if signal_type == SignalType.SELL:
+                current_profit_points = -current_profit_points
+            max_profit_reached = details.get('max_profit_reached', 0.0)
+            if current_profit_points > max_profit_reached:
+                details['max_profit_reached'] = current_profit_points
+                max_profit_reached = current_profit_points
+
+            # Reverse protection solo DESPUÉS de break-even: close when price retraces 30% from breakeven trigger
+            if details.get('breakeven_triggered') and not details.get('reverse_protection_triggered'):
+                reverse_protection_pct = params.get("reverse_protection_pct", 0.30)
+                breakeven_trigger_price = details.get('breakeven_trigger_price', entry_price)
+                if signal_type == SignalType.BUY:
+                    reverse_trigger = breakeven_trigger_price - (breakeven_trigger_price - entry_price) * reverse_protection_pct
+                    if current_price <= reverse_trigger:
+                        details['reverse_protection_triggered'] = True
+                        try:
+                            self.order_executor.close_position_by_ticket(position_ticket, exit_reason="REVERSE_PROTECTION")
+                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde breakeven (max profit {max_profit_reached:.1f} pts)"
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
+                            self.notification_service.send_notification(
+                                title=f"🛑 REVERSE PROTECTION - {symbol}",
+                                message=message
+                            )
+                        except Exception as e:
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error cerrando posición por reverse protection {position_ticket}: {e}")
+                        continue
+                else:
+                    reverse_trigger = breakeven_trigger_price + (entry_price - breakeven_trigger_price) * reverse_protection_pct
+                    if current_price >= reverse_trigger:
+                        details['reverse_protection_triggered'] = True
+                        try:
+                            self.order_executor.close_position_by_ticket(position_ticket, exit_reason="REVERSE_PROTECTION")
+                            message = f"REVERSE PROTECTION V10: cerrada {position_ticket} por retroceso {reverse_protection_pct:.0%} desde breakeven (max profit {max_profit_reached:.1f} pts)"
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
+                            self.notification_service.send_notification(
+                                title=f"🛑 REVERSE PROTECTION - {symbol}",
+                                message=message
+                            )
+                        except Exception as e:
+                            print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error cerrando posición por reverse protection {position_ticket}: {e}")
+                        continue
 
             breakeven_trigger_pct = params.get("break_even_trigger_pct", 0.40)
             min_trigger_points = params.get("break_even_min_trigger_points", 0)
@@ -344,8 +413,7 @@ class BreakEvenManager:
                         trailing_sl = current_price - offset
                         new_sl = max(details.get('current_sl', entry_price), trailing_sl)
                         if new_sl < current_price - buffer:
-                            try:
-                                self.order_executor.modify_position_sl(position_ticket, new_sl)
+                            if self._apply_sl_update(position_ticket, new_sl):
                                 details['current_sl'] = new_sl
                                 message = f"TRAILING AGRESIVO V10 activado en {position_ticket}: SL={new_sl}"
                                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
@@ -353,14 +421,11 @@ class BreakEvenManager:
                                     title=f"📈 TRAILING AGRESIVO - {symbol}",
                                     message=message
                                 )
-                            except Exception as e:
-                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL agresivo de posición {position_ticket}: {e}")
                     else:
                         trailing_sl = current_price + offset
                         new_sl = min(details.get('current_sl', entry_price), trailing_sl)
                         if new_sl > current_price + buffer:
-                            try:
-                                self.order_executor.modify_position_sl(position_ticket, new_sl)
+                            if self._apply_sl_update(position_ticket, new_sl):
                                 details['current_sl'] = new_sl
                                 message = f"TRAILING AGRESIVO V10 activado en {position_ticket}: SL={new_sl}"
                                 print(f"{Utils.dateprint()} - BREAK EVEN MGR: {message}")
@@ -368,8 +433,6 @@ class BreakEvenManager:
                                     title=f"📉 TRAILING AGRESIVO - {symbol}",
                                     message=message
                                 )
-                            except Exception as e:
-                                print(f"{Utils.dateprint()} - BREAK EVEN MGR: Error al modificar SL agresivo de posición {position_ticket}: {e}")
 
         for ticket in tickets_to_remove:
             if ticket in self.positions_to_monitor:

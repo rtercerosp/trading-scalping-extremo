@@ -16,6 +16,8 @@ import time
 import logging
 from datetime import datetime
 import MetaTrader5 as mt5
+import pandas as pd
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,7 @@ class TradingDirector():
         return True
 
     def _close_all_open_positions(self, symbol: str | None = None, asset_category: str = "forex") -> None:
-        positions = self.order_executor.PORTFOLIO.get_strategy_open_positions()
+        positions = self.portfolio.get_strategy_open_positions() if self.portfolio else []
         closed = 0
         for position in positions:
             symbol_key = normalize_symbol(position.symbol)
@@ -160,6 +162,9 @@ class TradingDirector():
             trade_state = self.trading_brain.get_symbol_trade_state(symbol_key)
             if not trade_state.get("tradeable", False):
                 print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} excluido temporalmente - {trade_state.get('reason')}")
+                reason = trade_state.get("reason", "")
+                if "drawdown" in reason.lower():
+                    logging.warning("ACTIVO EN DRAWDOWN %s: %s", symbol_key, reason)
                 return
             risk_override = trade_state.get("risk_override")
             if risk_override is not None:
@@ -190,6 +195,18 @@ class TradingDirector():
         if not self._is_trading_hours(symbol_key, asset_category):
             return
 
+        # Análisis multi-timeframe: 1H dirige, 15min/1min ejecutan
+        higher_tf_analysis = self._analyze_higher_timeframe(symbol_key)
+        event.higher_tf_bias = higher_tf_analysis.get("bias", "NEUTRAL")
+        event.higher_tf_strength = higher_tf_analysis.get("strength", 0.0)
+        event.higher_tf_support = higher_tf_analysis.get("support", 0.0)
+        event.higher_tf_resistance = higher_tf_analysis.get("resistance", 0.0)
+
+        if event.higher_tf_bias != "NEUTRAL":
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} sesgo 1H={event.higher_tf_bias} fuerza={event.higher_tf_strength:.2f}")
+        else:
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} sin sesgo claro en 1H, se permite señal pero con filtro extra")
+
         self.signal_generator.generate_signal(event)
 
     def execute(self, max_iterations: int | None = None) -> None:
@@ -203,6 +220,10 @@ class TradingDirector():
                 self._reset_daily_circuit_breaker_if_new_day()
                 self._check_weekend_closure()
                 self._check_market_close_closure()
+                
+                # Verificar drawdown por activo y cerrar posiciones si es necesario
+                self._check_asset_drawdown_closure()
+                
                 self.data_provider.check_for_new_data()
 
                 now_ts = time.time()
@@ -277,19 +298,83 @@ class TradingDirector():
         for symbol_key in symbols_to_close:
             self._close_all_open_positions(symbol=symbol_key)
 
+    def _estimate_signal_notional_acc_ccy(self, event) -> float:
+        if self.connector is None or self.data_provider is None:
+            return 0.0
+        try:
+            symbol_info = self.connector.get_symbol_info(event.symbol)
+            account_info = self.connector.get_account_info()
+            if not symbol_info or not account_info or event.sl <= 0 or account_info.equity <= 0:
+                return 0.0
+            tick = self.data_provider.get_latest_tick(event.symbol)
+            if not tick:
+                return 0.0
+            entry_price = tick.get('ask') if event.signal == 'BUY' else tick.get('bid')
+            if not entry_price or entry_price <= 0:
+                return 0.0
+            tick_size = symbol_info.trade_tick_size
+            contract_size = symbol_info.trade_contract_size
+            tick_value_profit_ccy = contract_size * tick_size
+            tick_value_account_ccy = self.connector.convert_currency_amount_to_another_currency(tick_value_profit_ccy, symbol_info.currency_profit, account_info.currency)
+            if tick_value_account_ccy <= 0:
+                return 0.0
+            price_distance_in_ticks = abs(entry_price - event.sl) / tick_size
+            if price_distance_in_ticks < 1:
+                price_distance_in_ticks = 1
+            price_distance_in_integer_ticksizes = int(price_distance_in_ticks)
+            risk_pct = getattr(event, 'risk_pct_override', 0.0) or getattr(config, 'SIZER_DEFAULT_RISK_PCT', 0.015)
+            monetary_risk = account_info.equity * risk_pct
+            volume = monetary_risk / (price_distance_in_integer_ticksizes * tick_value_account_ccy)
+            volume_step = symbol_info.volume_step
+            volume = round(volume / volume_step) * volume_step
+            volume = max(symbol_info.volume_min, volume)
+            notional = entry_price * volume * contract_size
+            max_notional_pct = getattr(config, 'PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE', 0.50)
+            max_notional = account_info.equity * max_notional_pct
+            notional = min(notional, max_notional)
+            if symbol_info.currency_profit != account_info.currency:
+                return self.connector.convert_currency_amount_to_another_currency(notional, symbol_info.currency_profit, account_info.currency) or 0.0
+            return notional
+        except Exception:
+            return 0.0
+
     def _handle_signal_event(self, event: SignalEvent):
         print(f"{Utils.dateprint()} - Recibido SIGNAL EVENT {event.signal} para {event.symbol}")
         symbol_key = normalize_symbol(event.symbol)
         if self.trading_brain and self.trading_brain.is_circuit_breaker_active()[0]:
             print(f"{Utils.dateprint()} - TRADING DIRECTOR: Trading detenido por circuit breaker. Se omite señal para {event.symbol}")
             return
-        if self.portfolio and not self.portfolio.can_open_position(symbol_key):
-            print(f"{Utils.dateprint()} - TRADING DIRECTOR: Límite de portfolio alcanzado. Se omite señal para {event.symbol}")
+        
+        # Verificación adicional de drawdown por activo
+        if self.trading_brain and getattr(config, "ASSET_CIRCUIT_BREAKER_ENABLED", True):
+            trade_state = self.trading_brain.get_symbol_trade_state(symbol_key)
+            if not trade_state.get("tradeable", False):
+                reason = trade_state.get("reason", "")
+                if "drawdown" in reason.lower():
+                    logging.warning("SIGNAL RECHAZADA %s: %s", symbol_key, reason)
+                    self._close_all_open_positions(symbol=symbol_key)
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} excluido - {reason}. Se omite señal.")
+                return
+        
+        # Aplicar boost por mejor activo
+        boost_multiplier = 1.0
+        if self.trading_brain and getattr(config, "ASSET_BOOST_ENABLED", True):
+            boost_info = self.trading_brain.get_asset_boost_info(symbol_key)
+            if boost_info.get("is_top_performer"):
+                boost_multiplier = boost_info.get("max_positions_multiplier", 1.0)
+                event.boost_multiplier = boost_multiplier
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: {symbol_key} es TOP performer - boost x{boost_multiplier:.1f}")
+        
+        if self.portfolio and not self.portfolio.can_open_position(symbol_key, boost_multiplier=boost_multiplier, new_position_notional=self._estimate_signal_notional_acc_ccy(event)):
+            summary = self.portfolio.get_portfolio_summary() if hasattr(self.portfolio, 'get_portfolio_summary') else {}
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: Límite de portfolio alcanzado. Se omite señal para {event.symbol}. Portfolio: {summary}")
             return
         if self._check_opposite_position(symbol_key, event.signal):
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: Posición opuesta detectada para {event.symbol}, se omite señal.")
             return
         if self.trading_brain and self._check_trade_loss_limit(event):
             return
+        
         self.position_sizer.size_signal(event)
 
     def _should_process_event_by_priority(self, symbol_key: str, asset_category: str) -> bool:
@@ -303,8 +388,11 @@ class TradingDirector():
         return True
 
     def _handle_sizing_event(self, event: SizingEvent):
-        print(f"{Utils.dateprint()} - Recibido SIZING EVENT con volumen {event.volume} para {event.signal} en {event.symbol}")
-        self.risk_manager.assess_order(event)
+        print(f"{Utils.dateprint()} - Recibido SIZING EVENT con volumen {event.volume} para {event.signal} en {event.symbol} sl={getattr(event, 'sl', None)} tp={getattr(event, 'tp', None)} tp1={getattr(event, 'tp1', None)} tp2={getattr(event, 'tp2', None)}")
+        try:
+            self.risk_manager.assess_order(event)
+        except Exception as e:
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: Error en risk_manager.assess_order para {event.symbol}: {e}")
 
     def _handle_order_event(self, event: OrderEvent):
         print(f"{Utils.dateprint()} - Recibido ORDER EVENT con volumen {event.volume} para {event.signal} en {event.symbol}")
@@ -361,7 +449,7 @@ class TradingDirector():
                         break
 
             if close_positions:
-                positions = self.order_executor.PORTFOLIO.get_strategy_open_positions()
+                positions = self.portfolio.get_strategy_open_positions() if self.portfolio else []
                 for position in positions:
                     symbol_key = normalize_symbol(position.symbol)
                     if normalized_affected and symbol_key not in normalized_affected:
@@ -462,3 +550,71 @@ class TradingDirector():
                 print(f"{Utils.dateprint()} - TRADING DIRECTOR: Omitiendo señal {signal} para {symbol}: ya existe posición opuesta {position_signal} (ticket {position.ticket})")
                 return True
         return False
+
+    def _check_asset_drawdown_closure(self) -> None:
+        """Verifica drawdown por activo y cierra posiciones si supera el límite de circuit breaker."""
+        if not self.trading_brain or not getattr(config, "ASSET_CIRCUIT_BREAKER_ENABLED", True):
+            return
+
+        breaker_pct = getattr(config, "ASSET_DRAWDOWN_BREAKER_PCT", -0.20)
+        positions = self.portfolio.get_strategy_open_positions() if self.portfolio else []
+        if not positions:
+            return
+
+        symbols_to_close = set()
+        for position in positions:
+            symbol_key = normalize_symbol(position.symbol)
+            perf = self.trading_brain.asset_performance.get(symbol_key, {})
+            current_dd = perf.get("current_drawdown", 0.0)
+            total_trades = perf.get("total_trades", 0)
+
+            if total_trades >= getattr(config, "ASSET_MIN_TRADES_FOR_BREAKER", 10) and current_dd <= breaker_pct:
+                symbols_to_close.add(symbol_key)
+                logging.warning("ASSET DD CLOSURE: %s drawdown=%.1f%% supera limite %.1f%%. Cerrando posiciones.",
+                               symbol_key, current_dd * 100, breaker_pct * 100)
+
+        for symbol_key in symbols_to_close:
+            self._close_all_open_positions(symbol=symbol_key)
+            self.notification_service.send_notification(
+                title="🚨 CIERRE POR DRAWDOWN",
+                message=f"Cerradas posiciones de {symbol_key} por drawdown excesivo. Se suspende trading en este activo."
+            )
+
+    def _analyze_higher_timeframe(self, symbol: str) -> dict:
+        """Analiza velas de 1H para determinar la dirección general y niveles clave."""
+        try:
+            h1_bars = self.data_provider.get_latest_closed_bars(symbol, "1h", 50)
+            if h1_bars is None or h1_bars.empty or len(h1_bars) < 20:
+                return {"bias": "NEUTRAL", "support": 0.0, "resistance": 0.0, "strength": 0.0}
+
+            highs = h1_bars["high"].values
+            lows = h1_bars["low"].values
+            closes = h1_bars["close"].values
+
+            recent_high = max(highs[-20:])
+            recent_low = min(lows[-20:])
+            current_price = closes[-1]
+
+            ema_fast = pd.Series(closes).ewm(span=20, adjust=False).mean().iloc[-1]
+            ema_slow = pd.Series(closes).ewm(span=50, adjust=False).mean().iloc[-1]
+
+            if current_price > ema_fast > ema_slow:
+                bias = "BULLISH"
+                strength = min(1.0, (current_price - recent_low) / (recent_high - recent_low) if recent_high > recent_low else 0.5)
+            elif current_price < ema_fast < ema_slow:
+                bias = "BEARISH"
+                strength = min(1.0, (recent_high - current_price) / (recent_high - recent_low) if recent_high > recent_low else 0.5)
+            else:
+                bias = "NEUTRAL"
+                strength = 0.0
+
+            return {
+                "bias": bias,
+                "support": recent_low,
+                "resistance": recent_high,
+                "strength": strength,
+                "current_price": current_price
+            }
+        except Exception as e:
+            logging.error("TRADING DIRECTOR: Error analizando 1H para %s: %s", symbol, e, exc_info=True)
+            return {"bias": "NEUTRAL", "support": 0.0, "resistance": 0.0, "strength": 0.0}

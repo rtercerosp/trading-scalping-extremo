@@ -25,7 +25,7 @@ class SignalBTCPullback(ISignalGenerator):
         self.sl_atr_mult = 1.0
         self.tp_atr_mult = 1.5
         self.min_atr_points = 20
-        self._allowed_symbols = ["BTCUSD", "BTCUSDc", "ETHUSD", "ETHUSDc"]
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     @staticmethod
     def _atr(bars: pd.DataFrame, period: int) -> pd.Series:

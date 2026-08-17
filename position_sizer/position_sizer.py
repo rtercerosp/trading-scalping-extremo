@@ -54,8 +54,12 @@ class PositionSizer(IPositionSizer):
                 tp2=signal_event.tp2,
                 volume=volume,
                 strategy_name=signal_event.strategy_name,
+                primary_strategy_name=signal_event.primary_strategy_name,
                 asset_category=signal_event.asset_category,
                 market_regime=signal_event.market_regime,
                 analysis_context=signal_event.analysis_context,
+                risk_pct_override=signal_event.risk_pct_override,
+                quality_score=signal_event.quality_score,
+                justification=signal_event.justification,
             )
             self.events_queue.put(sizing_event)
