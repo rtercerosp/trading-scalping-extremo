@@ -1,15 +1,7 @@
 import pandas as pd
 import numpy as np
-import sys
-import os
 
-# Añadir el directorio 'src' al path para permitir importaciones relativas
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-src_path = os.path.join(project_root, 'src')
-if src_path not in sys.path:
-    sys.path.insert(0, src_path)
-
-# Importar el módulo de triple barrera ahora que el path está configurado
+# Importar el módulo de triple barrera (archivo en la raíz del proyecto)
 from triple_barrier import apply_triple_barrier
 
 def build_features_and_targets(data: pd.DataFrame) -> pd.DataFrame:
