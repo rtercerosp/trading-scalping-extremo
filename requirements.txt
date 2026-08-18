@@ -1,4 +1,6 @@
 MetaTrader5
-python-dotenv
 pandas
-pydantic
+pandas-ta
+numpy
+python-dotenv
+setuptools

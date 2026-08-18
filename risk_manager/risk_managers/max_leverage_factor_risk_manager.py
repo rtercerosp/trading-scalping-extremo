@@ -101,4 +101,6 @@ class MaxLeverageFactorRiskManager(IRiskManager):
             float: The adjusted volume of the order that complies with the maximum leverage factor.
         """
         adjusted_volume = self._compute_adjusted_volume(sizing_event, current_positions_value_acc_ccy, new_position_value_acc_ccy)
-        return max(adjusted_volume, 0.0)
+        result = max(adjusted_volume, 0.0)
+        print(f"{Utils.dateprint()} - RISK MGMT assess_order symbol={sizing_event.symbol} signal={sizing_event.signal} requested={sizing_event.volume:.4f} current_value={current_positions_value_acc_ccy:.2f} new_value={new_position_value_acc_ccy:.2f} adjusted={adjusted_volume:.4f} result={result:.4f}")
+        return result

@@ -8,6 +8,9 @@ from utils.symbol_utils import get_asset_category, normalize_symbol
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class NewsEvent(BaseModel):
@@ -53,7 +56,7 @@ class NewsProtection:
             NewsEvent(symbol="JPY", event_time=now.replace(hour=12, minute=30, second=0, microsecond=0), impact="HIGH", description="Japan GDP", affects=["ALL"]),
             NewsEvent(symbol="XAU", event_time=now.replace(hour=14, minute=0, second=0, microsecond=0), impact="HIGH", description="US CPI (Gold impact)", affects=["XAUUSD"]),
             NewsEvent(symbol="XAU", event_time=now.replace(hour=20, minute=0, second=0, microsecond=0), impact="HIGH", description="US Fed Rate Decision (Gold impact)", affects=["XAUUSD"]),
-            NewsEvent(symbol="BTC", event_time=now.replace(hour=16, minute=0, second=0, microsecond=0), impact="MEDIUM", description="US Fed Rate Decision (Crypto impact)", affects=["BTCUSD", "ETHUSD", "SOLUSD"]),
+            NewsEvent(symbol="BTC", event_time=now.replace(hour=16, minute=0, second=0, microsecond=0), impact="MEDIUM", description="US Fed Rate Decision (Crypto impact)", affects=["ALL_CRYPTO"]),
             NewsEvent(symbol="USD", event_time=now.replace(hour=15, minute=30, second=0, microsecond=0), impact="MEDIUM", description="US Retail Sales", affects=["ALL"]),
             NewsEvent(symbol="USD", event_time=now.replace(hour=11, minute=0, second=0, microsecond=0), impact="MEDIUM", description="US PPI", affects=["ALL"]),
         ]
@@ -87,7 +90,12 @@ class NewsProtection:
 
         for news_event in self.news_schedule:
             if window_start <= news_event.event_time <= window_end:
-                if "ALL" in news_event.affects or symbol_key in [a.upper() for a in news_event.affects]:
+                affects = news_event.affects
+                if "ALL" in affects:
+                    return True, news_event
+                if "ALL_CRYPTO" in affects and asset_category == "crypto":
+                    return True, news_event
+                if symbol_key in [a.upper() for a in affects]:
                     return True, news_event
 
         return False, None

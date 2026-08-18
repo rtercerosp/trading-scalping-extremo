@@ -26,7 +26,7 @@ class SignalBTCStructureBreakout(ISignalGenerator):
         self.tp_atr_mult = 1.5
         self.min_atr_points = 20
         self.breakout_lookback = 3
-        self._allowed_symbols = ["BTCUSD", "BTCUSDc", "ETHUSD", "ETHUSDc"]
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     def set_timeframes(self, entry_timeframe: str, trend_timeframe: str | None = None, rsi_timeframe: str | None = None) -> None:
         self.entry_timeframe = entry_timeframe
@@ -72,12 +72,10 @@ class SignalBTCStructureBreakout(ISignalGenerator):
         trend_bars = data_provider.get_latest_closed_bars(symbol, self.trend_timeframe, self.lookback + 10)
         entry_bars = data_provider.get_latest_closed_bars(symbol, self.entry_timeframe, self.lookback + 10)
         if trend_bars.empty or entry_bars.empty or len(entry_bars) < self.breakout_lookback + 1:
-            print(f"{Utils.dateprint()} - SIGNAL BTC STRUCT: datos insuficientes trend={trend_bars.empty} entry={entry_bars.empty} len={len(entry_bars)}")
             return None
 
         symbol_info = self.connector.get_symbol_info(symbol)
         if symbol_info is None:
-            print(f"{Utils.dateprint()} - SIGNAL BTC STRUCT: sin symbol_info")
             return None
 
         trend_close = trend_bars["close"]
@@ -89,7 +87,6 @@ class SignalBTCStructureBreakout(ISignalGenerator):
         trend_is_bullish = strict_bullish or (trend_close.iloc[-1] > trend_fast.iloc[-1] and fast_slope > 0)
         trend_is_bearish = strict_bearish or (trend_close.iloc[-1] < trend_fast.iloc[-1] and fast_slope < 0)
         if not trend_is_bullish and not trend_is_bearish:
-            print(f"{Utils.dateprint()} - SIGNAL BTC STRUCT: sin tendencia clara 15min bullish={trend_is_bullish} bearish={trend_is_bearish}")
             return None
 
         atr_series = self._atr(entry_bars, self.atr_period)

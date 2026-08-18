@@ -31,8 +31,9 @@ class SignalBTCExtreme(ISignalGenerator):
         extreme_params = getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("BTCUSD", {})
         self.sl_atr_mult = extreme_params.get("sl_atr_mult", 1.0)
         self.tp_atr_mult = extreme_params.get("tp_atr_mult", 4.0)
-        self.min_atr_points = 10
+        self.min_atr_points = 5
 
+        self._asset_category = "crypto"
         self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     @staticmethod
@@ -129,6 +130,8 @@ class SignalBTCExtreme(ISignalGenerator):
                         portfolio: Portfolio, order_executor: OrderExecutor,
                         asset_category: str = "forex") -> SignalEvent | None:
         symbol = data_event.symbol
+        if asset_category != "crypto":
+            return None
         if not symbol_matches(symbol, self._allowed_symbols):
             return None
 
@@ -153,9 +156,9 @@ class SignalBTCExtreme(ISignalGenerator):
         if ask_price is None or bid_price is None:
             return None
 
-        spread = ask_price - bid_price
-        min_spread = max(getattr(symbol_info, 'trade_stops_level', 0), 10) * symbol_info.point
-        if spread > min_spread * 100:
+        spread_points = (ask_price - bid_price) / symbol_info.point
+        min_spread_points = max(getattr(symbol_info, 'trade_stops_level', 0), 10)
+        if spread_points > min_spread_points:
             return None
 
         atr_series = self._atr(entry_bars, self.atr_period)
@@ -187,8 +190,8 @@ class SignalBTCExtreme(ISignalGenerator):
         adx_series = self._adx(entry_high, entry_low, entry_close, 14)
         current_adx = adx_series.iloc[-1] if not pd.isna(adx_series.iloc[-1]) else 0
 
-        if current_adx < 10:
-            print(f"DEBUG BTC EXTREME: ADX={current_adx:.2f} debajo de 10")
+        if current_adx < 5:
+            print(f"DEBUG BTC EXTREME: ADX={current_adx:.2f} debajo de 5")
             return None
 
         ob_level = self._detect_order_block(entry_bars, "BUY" if trend_is_bullish else "SELL")
@@ -204,8 +207,7 @@ class SignalBTCExtreme(ISignalGenerator):
             and ema_fast.iloc[-1] > ema_slow.iloc[-1]
             and entry_close.iloc[-1] > ema_fast.iloc[-1]
             and entry_close.iloc[-1] > entry_close.iloc[-2]
-            and 35 <= current_rsi <= 80
-            and smc_level is not None
+            and 30 <= current_rsi <= 85
         )
 
         short_trigger = (
@@ -213,8 +215,7 @@ class SignalBTCExtreme(ISignalGenerator):
             and ema_fast.iloc[-1] < ema_slow.iloc[-1]
             and entry_close.iloc[-1] < ema_fast.iloc[-1]
             and entry_close.iloc[-1] < entry_close.iloc[-2]
-            and 20 <= current_rsi <= 65
-            and smc_level is not None
+            and 15 <= current_rsi <= 70
         )
 
         if long_trigger:
@@ -233,7 +234,7 @@ class SignalBTCExtreme(ISignalGenerator):
                 tp=tp,
                 tp1=tp1,
                 tp2=tp2,
-                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("BTCUSD", {}).get("risk_pct", 0.003),
+                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get(normalize_symbol(symbol), {}).get("risk_pct", 0.003),
             )
 
         if short_trigger:
@@ -252,7 +253,7 @@ class SignalBTCExtreme(ISignalGenerator):
                 tp=tp,
                 tp1=tp1,
                 tp2=tp2,
-                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("BTCUSD", {}).get("risk_pct", 0.003),
+                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get(normalize_symbol(symbol), {}).get("risk_pct", 0.003),
             )
 
         return None

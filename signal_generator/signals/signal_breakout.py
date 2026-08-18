@@ -36,14 +36,8 @@ class SignalBreakout(ISignalGenerator):
         return tr.rolling(period).mean()
 
     def _get_asset_category(self, symbol: str) -> str:
-        crypto_symbols = ["BTCUSD", "ETHUSD", "XRPUSD", "SOLUSD", "ADAUSD", "DOGEUSD", "MATICUSD", "AVAXUSD", "DOTUSD", "LINKUSD", "UNIUSD", "LTCUSD", "BCHUSD", "XLMUSD", "ATOMUSD", "FILUSD", "APTUSD", "OPUSD", "ARBUSD", "INJUSD"]
-        gold_symbols = ["XAUUSD", "XAUUSD+", "XAUUSD", "GOLD", "XAUUSDm", "XAUUSD.a"]
-        upper = symbol.upper()
-        if upper in crypto_symbols:
-            return "crypto"
-        if upper in gold_symbols:
-            return "gold"
-        return "forex"
+        from utils.symbol_utils import get_asset_category
+        return get_asset_category(symbol)
 
     def _compute_tp_levels(self, entry_price: float, sl: float, atr_points: float, asset_category: str, signal_type: str = "BUY") -> tuple:
         if asset_category == "crypto":

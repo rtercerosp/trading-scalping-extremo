@@ -30,9 +30,9 @@ class SignalEURUSDExtreme(ISignalGenerator):
 
         self.atr_period = max(getattr(properties, 'atr_period', 14), 2)
         extreme_params = getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("EURUSD", {})
-        self.sl_atr_mult = extreme_params.get("sl_atr_mult", 0.8)
-        self.tp_atr_mult = extreme_params.get("tp_atr_mult", 2.0)
-        self.min_atr_points = 15
+        self.sl_atr_mult = extreme_params.get("sl_atr_mult", 0.75)
+        self.tp_atr_mult = extreme_params.get("tp_atr_mult", 2.2)
+        self.min_atr_points = 12
         self.max_atr_points = 500
 
         self._allowed_symbols = ["EURUSD", "EURUSDc"]
@@ -166,9 +166,9 @@ class SignalEURUSDExtreme(ISignalGenerator):
         if ask_price is None or bid_price is None:
             return None
 
-        spread = ask_price - bid_price
-        min_spread = max(getattr(symbol_info, 'trade_stops_level', 0), 5) * symbol_info.point
-        if spread > min_spread * 100:
+        spread_points = (ask_price - bid_price) / symbol_info.point
+        min_spread_points = max(getattr(symbol_info, 'trade_stops_level', 0), 5)
+        if spread_points > min_spread_points:
             return None
 
         atr_series = self._atr(entry_bars, self.atr_period)
@@ -220,8 +220,8 @@ class SignalEURUSDExtreme(ISignalGenerator):
             and entry_close.iloc[-1] > ema_fast.iloc[-1]
             and entry_close.iloc[-1] > entry_close.iloc[-2]
             and 40 <= current_rsi <= 65
-            and (ob_level is not None or fvg_level is not None or liquidity_sweep)
-            and ask_price > (ob_level or fvg_level or ask_price)
+            and (ob_level is None or ask_price > ob_level)
+            and (fvg_level is None or ask_price > fvg_level)
         )
 
         short_trigger = (
@@ -231,8 +231,8 @@ class SignalEURUSDExtreme(ISignalGenerator):
             and entry_close.iloc[-1] < ema_fast.iloc[-1]
             and entry_close.iloc[-1] < entry_close.iloc[-2]
             and 35 <= current_rsi <= 60
-            and (ob_level is not None or fvg_level is not None or liquidity_sweep)
-            and bid_price < (ob_level or fvg_level or bid_price)
+            and (ob_level is None or bid_price < ob_level)
+            and (fvg_level is None or bid_price < fvg_level)
         )
 
         if long_trigger:
@@ -251,7 +251,7 @@ class SignalEURUSDExtreme(ISignalGenerator):
                 tp=tp,
                 tp1=tp1,
                 tp2=tp2,
-                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("EURUSD", {}).get("risk_pct", 0.007),
+                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get(normalize_symbol(symbol), {}).get("risk_pct", 0.007),
             )
 
         if short_trigger:
@@ -270,7 +270,7 @@ class SignalEURUSDExtreme(ISignalGenerator):
                 tp=tp,
                 tp1=tp1,
                 tp2=tp2,
-                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get("EURUSD", {}).get("risk_pct", 0.007),
+                risk_pct_override=getattr(config, "EXTREME_SCALPING_PARAMS", {}).get(normalize_symbol(symbol), {}).get("risk_pct", 0.007),
             )
 
         return None

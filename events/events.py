@@ -64,11 +64,19 @@ class DataEvent(BaseEvent):
         symbol (str): The symbol associated with the data.
         data (pd.Series): The data associated with the event.
         risk_pct_override (Optional[float]): Optional risk override from news protection.
+        higher_tf_bias (str): 1H higher timeframe bias.
+        higher_tf_strength (float): 1H bias strength.
+        higher_tf_support (float): 1H support level.
+        higher_tf_resistance (float): 1H resistance level.
     """
     event_type: EventType = EventType.DATA
     symbol: str
     data: pd.Series
     risk_pct_override: Optional[float] = None
+    higher_tf_bias: str = "NEUTRAL"
+    higher_tf_strength: float = 0.0
+    higher_tf_support: float = 0.0
+    higher_tf_resistance: float = 0.0
 
 
 class SignalEvent(BaseEvent):
@@ -105,6 +113,7 @@ class SignalEvent(BaseEvent):
     tp1: float = 0.0
     tp2: float = 0.0
     strategy_name: str = "UNKNOWN"
+    primary_strategy_name: str = "UNKNOWN"
     asset_category: str = "forex"
     market_regime: str = "unknown"
     analysis_context: dict = Field(default_factory=dict)
@@ -149,6 +158,7 @@ class SizingEvent(BaseEvent):
     tp2: float = 0.0
     volume: float
     strategy_name: str = "UNKNOWN"
+    primary_strategy_name: str = "UNKNOWN"
     asset_category: str = "forex"
     market_regime: str = "unknown"
     analysis_context: dict = Field(default_factory=dict)
@@ -193,6 +203,7 @@ class OrderEvent(BaseEvent):
     tp2: float = 0.0
     volume: float
     strategy_name: str = "UNKNOWN"
+    primary_strategy_name: str = "UNKNOWN"
     asset_category: str = "forex"
     market_regime: str = "unknown"
     analysis_context: dict = Field(default_factory=dict)
@@ -235,11 +246,15 @@ class ExecutionEvent(BaseEvent):
     position_ticket: int
     strategy_type: str = "SCALPING_EXTREME"
     strategy_name: str = "UNKNOWN"
+    primary_strategy_name: str = "UNKNOWN"
     asset_category: str = "forex"
     market_regime: str = "unknown"
     analysis_context: dict = Field(default_factory=dict)
     deal_ticket: int = 0
     exit_reason: str = "OPEN"
+    risk_pct_override: float = 0.0
+    quality_score: float = 0.0
+    justification: str = ""
 
 
 class PlacedPendingOrderEvent(BaseEvent):

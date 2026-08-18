@@ -1,5 +1,6 @@
 from queue import Queue
 import logging
+from datetime import datetime
 
 import pandas as pd
 
@@ -23,6 +24,12 @@ from .signals.signal_rsi_mr import SignalRSI
 from .signals.signal_trend_pullback import SignalTrendPullback
 from .signals.signal_breakout import SignalBreakout
 from .signals.signal_momentum import SignalMomentum
+from utils.utils import Utils
+from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, INDEX_SYMBOLS, COMMODITY_SYMBOLS, get_asset_category, normalize_symbol
+from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
+import config
+
+logger = logging.getLogger(__name__)
 from .signals.signal_btc_pullback import SignalBTCPullback
 from .signals.signal_eth_pullback import SignalETHPullback
 from .signals.signal_btc_structure import SignalBTCStructureBreakout
@@ -31,12 +38,26 @@ from .signals.signal_smart_money_eurusd import SignalSmartMoneyEURUSD
 from .signals.signal_smart_money_btc import SignalSmartMoneyBTC
 from .signals.signal_smart_money_eth import SignalSmartMoneyETH
 from .signals.signal_eurusd_extreme import SignalEURUSDExtreme
+from .signals.signal_xau_extreme import SignalXAUExtreme
+from .signals.signal_gbpusd_extreme import SignalGBPExtreme
+from .signals.signal_usdjpy_extreme import SignalUSDJPExtreme
 from .signals.signal_btc_extreme import SignalBTCExtreme
 from .signals.signal_candlestick import SignalCandlestickPatterns
 from .signals.signal_fib_scalp import SignalFibScalp
 from .signals.signal_bollinger_bands import SignalBollingerBands
+try:
+    from .signals.signal_crypto_volatility_breakout import SignalCryptoVolatilityBreakout
+except ModuleNotFoundError as exc:
+    SignalCryptoVolatilityBreakout = None
+    logger.warning("SIGNAL GENERATOR: estrategia opcional SignalCryptoVolatilityBreakout deshabilitada: %s", exc)
+
+try:
+    from .signals.signal_gold_momentum_reversal import SignalGoldMomentumReversal
+except ModuleNotFoundError as exc:
+    SignalGoldMomentumReversal = None
+    logger.warning("SIGNAL GENERATOR: estrategia opcional SignalGoldMomentumReversal deshabilitada: %s", exc)
 from utils.utils import Utils
-from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, get_asset_category, normalize_symbol
+from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, INDEX_SYMBOLS, COMMODITY_SYMBOLS, get_asset_category, normalize_symbol
 from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
 import config
 
@@ -44,12 +65,16 @@ ASSET_TIMEFRAME_CONFIG = {
     "crypto": {"entry": "15min", "trend": "30min", "rsi": "15min"},
     "gold": {"entry": "15min", "trend": "30min", "rsi": "15min"},
     "forex": {"entry": "5min", "trend": "15min", "rsi": "5min"},
+    "index": {"entry": "5min", "trend": "15min", "rsi": "5min"},
+    "commodity": {"entry": "15min", "trend": "30min", "rsi": "15min"},
 }
 
 ASSET_RISK_CONFIG = {
     "crypto": {"sl_atr_mult": 1.4, "tp_atr_mult": 2.2, "rsi_upper": 72.0, "rsi_lower": 28.0},
     "gold": {"sl_atr_mult": 1.3, "tp_atr_mult": 2.0, "rsi_upper": 70.0, "rsi_lower": 30.0},
     "forex": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.0, "rsi_upper": 70.0, "rsi_lower": 30.0},
+    "index": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.0, "rsi_upper": 72.0, "rsi_lower": 28.0},
+    "commodity": {"sl_atr_mult": 1.2, "tp_atr_mult": 2.2, "rsi_upper": 70.0, "rsi_lower": 30.0},
 }
 
 
@@ -74,6 +99,7 @@ class SignalGenerator(ISignalGenerator):
         self.strategies: list[ISignalGenerator] = []
         self.asset_strategies: dict[str, list[ISignalGenerator]] = {}
         self.asset_category_map: dict[str, str] = {}
+        self._recent_signal_cache: dict[tuple[str, str, str], datetime] = {}
         self.sr_analyzer = DynamicSRAnalyzer(lookback=50, peak_distance=3, tolerance_pct=0.0015)
 
         smart_money_props = signal_properties if isinstance(signal_properties, SmartMoneySignalProps) else SmartMoneySignalProps(
@@ -104,7 +130,10 @@ class SignalGenerator(ISignalGenerator):
         self.strategies.append(SignalSmartMoneyETH(properties=smart_money_props, connector=connector))
         self.strategies.append(SignalBTCExtreme(properties=smart_money_props, connector=connector))
         self.strategies.append(SignalEURUSDExtreme(properties=smart_money_props, connector=connector))
+        self.strategies.append(SignalXAUExtreme(properties=smart_money_props, connector=connector))
 
+        self.strategies.append(SignalGBPExtreme(properties=smart_money_props, connector=connector))
+        self.strategies.append(SignalUSDJPExtreme(properties=smart_money_props, connector=connector))
         trend_props = signal_properties if isinstance(signal_properties, TrendPullbackProps) else TrendPullbackProps(
             entry_timeframe="5min",
             trend_timeframe="15min",
@@ -168,6 +197,12 @@ class SignalGenerator(ISignalGenerator):
             tp_atr_mult=2.0,
         ), connector=connector))
 
+        # Estrategias experimentales: se cargan solo si sus dependencias opcionales estan disponibles.
+        if SignalCryptoVolatilityBreakout is not None:
+            self.strategies.append(SignalCryptoVolatilityBreakout(name="SignalCryptoVolatilityBreakout", version=1, params={}))
+        if SignalGoldMomentumReversal is not None:
+            self.strategies.append(SignalGoldMomentumReversal(name="SignalGoldMomentumReversal", version=1, params={}))
+
         self._build_asset_strategy_map()
 
     @staticmethod
@@ -175,39 +210,140 @@ class SignalGenerator(ISignalGenerator):
         return normalize_symbol(symbol)
 
     def _build_asset_strategy_map(self) -> None:
-        all_strategies = list(self.strategies)
-
-        for strategy in all_strategies:
+        for strategy in self.strategies:
             strategy_name = strategy.__class__.__name__
-            for symbol in CRYPTO_SYMBOLS:
-                self.asset_category_map[symbol] = "crypto"
-                self.asset_strategies.setdefault(symbol, [])
-                if strategy_name not in [s.__class__.__name__ for s in self.asset_strategies.get(symbol, [])]:
-                    self.asset_strategies[symbol].append(strategy)
-            for symbol in GOLD_SYMBOLS:
-                self.asset_category_map[symbol] = "gold"
-                self.asset_strategies.setdefault(symbol, [])
-                if strategy_name not in [s.__class__.__name__ for s in self.asset_strategies.get(symbol, [])]:
-                    self.asset_strategies[symbol].append(strategy)
-            for symbol in FOREX_SYMBOLS:
-                self.asset_category_map[symbol] = "forex"
-                self.asset_strategies.setdefault(symbol, [])
-                if strategy_name not in [s.__class__.__name__ for s in self.asset_strategies.get(symbol, [])]:
-                    self.asset_strategies[symbol].append(strategy)
+            allowed = getattr(strategy, "_allowed_symbols", None)
+            normalized_allowed = {normalize_symbol(s) for s in allowed} if allowed else set()
+            asset_category_override = getattr(strategy, "_asset_category", None)
 
-        for symbol in CRYPTO_SYMBOLS:
-            self.asset_strategies[symbol] = all_strategies
-        for symbol in GOLD_SYMBOLS:
-            self.asset_strategies[symbol] = all_strategies
-        for symbol in FOREX_SYMBOLS:
-            self.asset_strategies[symbol] = all_strategies
+            if not normalized_allowed and not asset_category_override:
+                for symbol in CRYPTO_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "crypto")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+                for symbol in GOLD_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "gold")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+                for symbol in FOREX_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "forex")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+                for symbol in INDEX_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "index")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+                for symbol in COMMODITY_SYMBOLS:
+                    self.asset_category_map.setdefault(symbol, "commodity")
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+            elif asset_category_override:
+                if asset_category_override == "crypto":
+                    universe = CRYPTO_SYMBOLS
+                elif asset_category_override == "gold":
+                    universe = GOLD_SYMBOLS
+                elif asset_category_override == "index":
+                    universe = INDEX_SYMBOLS
+                elif asset_category_override == "commodity":
+                    universe = COMMODITY_SYMBOLS
+                else:
+                    universe = FOREX_SYMBOLS
+                for symbol in universe:
+                    self.asset_category_map.setdefault(symbol, asset_category_override)
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
+            else:
+                for symbol in normalized_allowed:
+                    cat = get_asset_category(symbol)
+                    self.asset_category_map.setdefault(symbol, cat)
+                    self.asset_strategies.setdefault(symbol, [])
+                    if strategy not in self.asset_strategies[symbol]:
+                        self.asset_strategies[symbol].append(strategy)
 
     def _get_asset_category(self, symbol: str) -> str:
         return get_asset_category(symbol)
 
     def _get_strategies_for_asset(self, symbol: str) -> list:
         upper = self._normalize_symbol(symbol)
-        return self.asset_strategies.get(upper, self.strategies)
+        strategies = list(self.asset_strategies.get(upper, self.strategies))
+        allowed = list(getattr(config, "ASSET_ALLOWED_STRATEGIES", {}).get(upper, []))
+        if allowed:
+            by_name = {strategy.__class__.__name__: strategy for strategy in strategies}
+            return [by_name[name] for name in allowed if name in by_name]
+
+        primary = list(getattr(config, "ASSET_PRIMARY_STRATEGIES", {}).get(upper, []))
+        if not primary:
+            return strategies
+
+        prioritized = []
+        for name in primary:
+            prioritized.extend([strategy for strategy in strategies if strategy.__class__.__name__ == name and strategy not in prioritized])
+        prioritized.extend([strategy for strategy in strategies if strategy not in prioritized])
+        return prioritized
+
+    def _limit_candidate_strategies(self, symbol: str, strategies: list[ISignalGenerator]) -> list[ISignalGenerator]:
+        symbol_key = self._normalize_symbol(symbol)
+        max_candidates = getattr(config, "ASSET_STRATEGY_MAX_CANDIDATES", {}).get(symbol_key, len(strategies))
+        return strategies[:max(1, int(max_candidates))]
+
+    def _extract_event_timestamp(self, data_event: DataEvent) -> datetime | None:
+        raw_bar = getattr(data_event, "data", None)
+        if isinstance(raw_bar, pd.Series):
+            if "time" in raw_bar and pd.notna(raw_bar["time"]):
+                return pd.Timestamp(raw_bar["time"]).to_pydatetime()
+            if hasattr(raw_bar, "name") and raw_bar.name is not None:
+                try:
+                    return pd.Timestamp(raw_bar.name).to_pydatetime()
+                except Exception:
+                    return None
+        return None
+
+    def _get_signal_cooldown_seconds(self, symbol: str) -> float:
+        symbol_key = self._normalize_symbol(symbol)
+        cooldown_minutes = getattr(config, "ASSET_SIGNAL_COOLDOWN_MINUTES", {}).get(symbol_key, 0)
+        return max(0.0, float(cooldown_minutes) * 60.0)
+
+    def _is_signal_on_cooldown(self, symbol: str, strategy_name: str, signal_type: str, event_ts: datetime | None) -> bool:
+        if event_ts is None:
+            return False
+        cooldown_seconds = self._get_signal_cooldown_seconds(symbol)
+        if cooldown_seconds <= 0:
+            return False
+        key = (self._normalize_symbol(symbol), strategy_name, signal_type)
+        last_ts = self._recent_signal_cache.get(key)
+        if last_ts is None:
+            return False
+        return (event_ts - last_ts).total_seconds() < cooldown_seconds
+
+    def _remember_signal(self, symbol: str, strategy_name: str, signal_type: str, event_ts: datetime | None) -> None:
+        if event_ts is None:
+            return
+        key = (self._normalize_symbol(symbol), strategy_name, signal_type)
+        self._recent_signal_cache[key] = event_ts
+
+    def _get_quality_threshold(self, symbol: str) -> float:
+        symbol_key = self._normalize_symbol(symbol)
+        return float(
+            getattr(config, "V13_QUALITY_THRESHOLD_BY_SYMBOL", {}).get(
+                symbol_key,
+                getattr(config, "V13_QUALITY_THRESHOLD_DEFAULT", 65.0),
+            )
+        )
+
+    def _get_consensus_threshold(self, symbol: str) -> int:
+        symbol_key = self._normalize_symbol(symbol)
+        return int(
+            getattr(config, "V13_CONSENSUS_THRESHOLD_BY_SYMBOL", {}).get(
+                symbol_key,
+                getattr(config, "V13_CONSENSUS_THRESHOLD_DEFAULT", 1),
+            )
+        )
 
     def _evaluate_signal_quality(self, signal_event: SignalEvent, data_event: DataEvent, bars: pd.DataFrame) -> tuple[float, str]:
         if bars.empty or len(bars) < 10:
@@ -335,15 +471,39 @@ class SignalGenerator(ISignalGenerator):
             if atr_points > 0 and spread_points > atr_points * atr_threshold:
                 return False
 
+            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+                gap_protection_pct = getattr(config, "V10_GAP_PROTECTION_PCT", 0.003)
+                bars = self.data_provider.get_latest_closed_bars(symbol, "1min", 5)
+                if bars is not None and not bars.empty and len(bars) >= 2:
+                    last_open = bars['open'].iloc[-1]
+                    prev_close = bars['close'].iloc[-2]
+                    if last_open > 0 and prev_close > 0:
+                        gap = abs(last_open - prev_close) / prev_close
+                        if gap > gap_protection_pct:
+                            logger.debug("SIGNAL GENERATOR: Gap protection rechaza %s gap=%.4f", symbol, gap)
+                            return False
+
             return True
         except Exception as e:
-            logging.error("SIGNAL GENERATOR: Error evaluando viabilidad para %s: %s", symbol, e, exc_info=True)
+            logger.debug("SIGNAL GENERATOR: Error evaluando viabilidad para %s: %s", symbol, e, exc_info=True)
+            return False
+
+    def _is_signal_aligned_with_higher_tf(self, signal_event, higher_tf_bias: str, higher_tf_strength: float, higher_tf_support: float, higher_tf_resistance: float) -> bool:
+        """Filtra señales que contradicen el sesgo 1H."""
+        if higher_tf_bias == "NEUTRAL" or higher_tf_strength < 0.25:
             return True
+        signal_type = getattr(signal_event, 'signal', None)
+        if signal_type == "BUY" and higher_tf_bias == "BEARISH":
+            return False
+        if signal_type == "SELL" and higher_tf_bias == "BULLISH":
+            return False
+        return True
 
     def generate_signal(self, data_event: DataEvent) -> None:
         print(f"{Utils.dateprint()} - SIGNAL GENERATOR: generate_signal para {data_event.symbol}")
         asset_category = self._get_asset_category(data_event.symbol)
-        strategies = self._get_strategies_for_asset(data_event.symbol)
+        strategies = self._limit_candidate_strategies(data_event.symbol, self._get_strategies_for_asset(data_event.symbol))
+        event_ts = self._extract_event_timestamp(data_event)
         print(f"{Utils.dateprint()} - SIGNAL GENERATOR: asset_category={asset_category}, strategies={[s.__class__.__name__ for s in strategies]}")
         market_regime = "unknown"
         analysis_context = {}
@@ -351,7 +511,7 @@ class SignalGenerator(ISignalGenerator):
         if self.trading_brain:
             if getattr(self.trading_brain, "ai_enabled", False) and getattr(self.trading_brain, "ai", None) is not None:
                 try:
-                    bars = self.data_provider.get_latest_closed_bars(data_event.symbol, "15min", 80)
+                    bars = self.data_provider.get_latest_closed_bars(data_event.symbol, "1h", 80)
                     market_analysis = self.trading_brain.ai.analyze_market(data_event.symbol, bars)
                     if market_analysis.get("valid"):
                         market_regime = market_analysis.get("regime", "unknown")
@@ -362,9 +522,13 @@ class SignalGenerator(ISignalGenerator):
             self.trading_brain._current_strategies = strategies
 
             recommended_names = self.trading_brain.get_strategy_recommendation(data_event.symbol, asset_category)
-            preferred_strategies = [s for s in strategies if s.__class__.__name__ in recommended_names]
+            preferred_strategies = []
+            for strategy_name in recommended_names:
+                preferred_strategies.extend(
+                    [s for s in strategies if s.__class__.__name__ == strategy_name and s not in preferred_strategies]
+                )
             if preferred_strategies:
-                strategies = preferred_strategies
+                strategies = self._limit_candidate_strategies(data_event.symbol, preferred_strategies)
 
             adaptive_params = self.trading_brain.get_adaptive_params(data_event.symbol)
             if adaptive_params:
@@ -395,6 +559,11 @@ class SignalGenerator(ISignalGenerator):
             except Exception as e:
                 print(f"{Utils.dateprint()} - SIGNAL GENERATOR: Error aplicando timeframes/riesgo por activo: {e}")
 
+        higher_tf_bias = getattr(data_event, 'higher_tf_bias', 'NEUTRAL') or 'NEUTRAL'
+        higher_tf_strength = getattr(data_event, 'higher_tf_strength', 0.0) or 0.0
+        higher_tf_support = getattr(data_event, 'higher_tf_support', 0.0) or 0.0
+        higher_tf_resistance = getattr(data_event, 'higher_tf_resistance', 0.0) or 0.0
+
         signal_candidates = []
         for strategy in strategies:
             try:
@@ -406,6 +575,12 @@ class SignalGenerator(ISignalGenerator):
                     asset_category=asset_category,
                 )
                 if signal_event is not None:
+                    if self._is_signal_on_cooldown(data_event.symbol, strategy.__class__.__name__, signal_event.signal, event_ts):
+                        print(f"{Utils.dateprint()} - SIGNAL GENERATOR: {strategy.__class__.__name__} en cooldown para {data_event.symbol}")
+                        continue
+                    if not self._is_signal_aligned_with_higher_tf(signal_event, higher_tf_bias, higher_tf_strength, higher_tf_support, higher_tf_resistance):
+                        print(f"{Utils.dateprint()} - SIGNAL GENERATOR: {strategy.__class__.__name__} señal descartada por sesgo 1H={higher_tf_bias}")
+                        continue
                     if not self._is_signal_viable(data_event.symbol, signal_event, asset_category):
                         print(f"{Utils.dateprint()} - SIGNAL GENERATOR: Señal descartada por spread/volatilidad en {strategy.__class__.__name__} para {data_event.symbol}")
                         continue
@@ -418,7 +593,15 @@ class SignalGenerator(ISignalGenerator):
                         logging.error("SIGNAL GENERATOR: Error evaluando calidad para %s: %s", data_event.symbol, quality_error, exc_info=True)
                         signal_event.quality_score = 50.0
                         signal_event.justification = "Calidad no evaluada por error"
+                    signal_event.primary_strategy_name = strategy.__class__.__name__
+                    signal_event.analysis_context = dict(getattr(signal_event, "analysis_context", {}) or {})
+                    signal_event.analysis_context.update({
+                        "primary_strategy_name": signal_event.primary_strategy_name,
+                        "higher_tf_bias": higher_tf_bias,
+                        "higher_tf_strength": higher_tf_strength,
+                    })
                     print(f"{Utils.dateprint()} - SIGNAL GENERATOR: Señal generada por {strategy.__class__.__name__}: {signal_event.signal} {data_event.symbol} | calidad={signal_event.quality_score:.1f} | {signal_event.justification}")
+                    self._remember_signal(data_event.symbol, strategy.__class__.__name__, signal_event.signal, event_ts)
                     signal_candidates.append((strategy, signal_event))
                 else:
                     print(f"{Utils.dateprint()} - SIGNAL GENERATOR: {strategy.__class__.__name__} no generó señal para {data_event.symbol}")
@@ -433,29 +616,109 @@ class SignalGenerator(ISignalGenerator):
         buy_signals = [(s, se) for s, se in signal_candidates if se.signal == "BUY"]
         sell_signals = [(s, se) for s, se in signal_candidates if se.signal == "SELL"]
 
-        consensus_threshold = 1 if config.STRATEGY_VERSION == "V8_EXTREME_SCALPING" else 2
+        # Umbral de calidad por versión
+        if config.STRATEGY_VERSION in ("V14_DIVERSIFIED_RISK_MANAGED", "V13_DEMO_CLEAN_SLATE"):
+            quality_threshold = self._get_quality_threshold(data_event.symbol)
+        elif config.STRATEGY_VERSION == "V12_UNIVERSAL_AGGRESSIVE":
+            quality_threshold = 65.0
+        elif config.STRATEGY_VERSION == "V11_CRYPTO_VOLATILITY":
+            quality_threshold = 65.0
+        elif config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+            asset_key = self._normalize_symbol(data_event.symbol)
+            high_sl_assets = {"EURUSD", "ETHUSD", "USDJPY"}
+            quality_threshold = 60.0 if asset_key in high_sl_assets else 60.0
+        elif config.STRATEGY_VERSION == "V9_SCALPING_MAX_QUALITY":
+            quality_threshold = 75.0
+        else:
+            quality_threshold = 60.0 # Default para V8 y anteriores
+        
+        buy_signals = [(s, se) for s, se in buy_signals if se.quality_score >= quality_threshold]
+        sell_signals = [(s, se) for s, se in sell_signals if se.quality_score >= quality_threshold]
 
-        if len(buy_signals) >= consensus_threshold and len(buy_signals) >= len(sell_signals):
-            strategy, signal_event = buy_signals[0]
-            enriched_event = signal_event.copy(update={
-                "strategy_name": "+".join([s.__class__.__name__ for s, _ in buy_signals]),
+        aggressive_versions = ("V8_EXTREME_SCALPING", "V10_ZERO_LOSS_SCALPING", "V11_CRYPTO_VOLATILITY", "V12_UNIVERSAL_AGGRESSIVE", "V13_DEMO_CLEAN_SLATE", "V14_DIVERSIFIED_RISK_MANAGED")
+        if config.STRATEGY_VERSION in ("V14_DIVERSIFIED_RISK_MANAGED", "V13_DEMO_CLEAN_SLATE"):
+            consensus_threshold = self._get_consensus_threshold(data_event.symbol)
+        else:
+            consensus_threshold = 1 if config.STRATEGY_VERSION in aggressive_versions else 2
+
+        logging.info("SIGNAL GENERATOR: consensus buy=%d sell=%d threshold=%d symbol=%s", len(buy_signals), len(sell_signals), consensus_threshold, data_event.symbol)
+
+        final_signal = None
+        buy_consensus_met = len(buy_signals) >= consensus_threshold
+        sell_consensus_met = len(sell_signals) >= consensus_threshold
+
+        if buy_consensus_met and not sell_consensus_met:
+            final_signal = buy_signals[0][1]
+            final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in buy_signals])
+            logging.info("SIGNAL GENERATOR: Consenso de COMPRA claro para %s", data_event.symbol)
+        elif sell_consensus_met and not buy_consensus_met:
+            final_signal = sell_signals[0][1]
+            final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in sell_signals])
+            logging.info("SIGNAL GENERATOR: Consenso de VENTA claro para %s", data_event.symbol)
+        elif buy_consensus_met and sell_consensus_met:
+            # Ambas direcciones tienen consenso, desempatar por calidad promedio
+            avg_buy_quality = sum(se.quality_score for _, se in buy_signals) / len(buy_signals)
+            avg_sell_quality = sum(se.quality_score for _, se in sell_signals) / len(sell_signals)
+            logging.info("SIGNAL GENERATOR: Conflicto de consenso en %s. Calidad media BUY: %.1f, SELL: %.1f", data_event.symbol, avg_buy_quality, avg_sell_quality)
+
+            if avg_buy_quality > avg_sell_quality:
+                final_signal = buy_signals[0][1]
+                final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in buy_signals])
+            else:
+                final_signal = sell_signals[0][1]
+                final_signal.strategy_name = "+".join([s.__class__.__name__ for s, _ in sell_signals])
+        
+        if final_signal:
+            signal_context = dict(analysis_context)
+            signal_context.update(dict(getattr(final_signal, "analysis_context", {}) or {}))
+            signal_context.update({
+                "consensus_strategies": final_signal.strategy_name.split("+") if final_signal.strategy_name else [],
+                "quality_threshold": quality_threshold,
+                "consensus_threshold": consensus_threshold,
+            })
+            enriched_event = final_signal.copy(update={
                 "asset_category": asset_category,
                 "market_regime": market_regime,
-                "analysis_context": analysis_context,
-                "quality_score": signal_event.quality_score,
-                "justification": signal_event.justification,
+                "analysis_context": signal_context,
             })
-            logging.info("SIGNAL GENERATOR: Señal BUY final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
+
+            if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
+                enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
+            
+            logging.info("SIGNAL GENERATOR: Señal %s final %s calidad=%.1f justificación=%s", 
+                         enriched_event.signal, enriched_event.symbol, enriched_event.quality_score, enriched_event.justification)
             self.events_queue.put(enriched_event)
-        elif len(sell_signals) >= consensus_threshold and len(sell_signals) >= len(buy_signals):
-            strategy, signal_event = sell_signals[0]
-            enriched_event = signal_event.copy(update={
-                "strategy_name": "+".join([s.__class__.__name__ for s, _ in sell_signals]),
-                "asset_category": asset_category,
-                "market_regime": market_regime,
-                "analysis_context": analysis_context,
-                "quality_score": signal_event.quality_score,
-                "justification": signal_event.justification,
-            })
-            logging.info("SIGNAL GENERATOR: Señal SELL final %s calidad=%.1f justificación=%s", signal_event.symbol, signal_event.quality_score, signal_event.justification)
-            self.events_queue.put(enriched_event)
+        else:
+            logging.info("SIGNAL GENERATOR: Sin consenso para %s (buy=%d sell=%d)", data_event.symbol, len(buy_signals), len(sell_signals))
+
+    def _apply_compounding_bonus(self, symbol: str, signal_event) -> object:
+        try:
+            if getattr(config, "STRATEGY_VERSION", "") != "V10_ZERO_LOSS_SCALPING":
+                return signal_event
+            
+            # Solo activar compounding si el activo tiene Profit Factor > 1.0 y Win Rate > 50%
+            if self.trading_brain:
+                asset_key = self._normalize_symbol(symbol)
+                perf = self.trading_brain.asset_performance.get(asset_key, {})
+                pf = perf.get("profit_factor", 0.0)
+                wr = perf.get("win_rate", 0.0)
+                total_trades = perf.get("total_trades", 0)
+                
+                # Requerir mínimo 20 trades y PF > 1.2, WR > 55% para compounding
+                if total_trades < 20 or pf <= 1.2 or wr <= 0.55:
+                    return signal_event
+            
+            params = getattr(config, "V10_ZERO_LOSS_PARAMS", {})
+            multiplier = params.get("compounding_volume_multiplier", getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0))
+            min_equity = params.get("compounding_min_equity", getattr(config, "V10_COMPOUNDING_MIN_EQUITY", 5000.0))
+            if multiplier <= 1.0:
+                return signal_event
+            account_info = self.connector.get_account_info() if self.connector else None
+            equity = getattr(account_info, 'equity', 0.0) if account_info else 0.0
+            if equity < min_equity:
+                return signal_event
+            if hasattr(signal_event, 'volume') and signal_event.volume > 0:
+                signal_event.volume = round(signal_event.volume * multiplier, 2)
+        except Exception as e:
+            logging.error("SIGNAL GENERATOR: Error aplicando compounding bonus para %s: %s", symbol, e, exc_info=True)
+        return signal_event

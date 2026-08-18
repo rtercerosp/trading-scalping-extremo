@@ -1,32 +1,37 @@
 # QUANTDEMY - https://quantdemy.com - Trading con Python y MetaTrader 5: Crea tu Propio Framework
 
+import logging
 from platform_connector.platform_connector import PlatformConnector
 from portfolio.portfolio import Portfolio
 from notifications.notifications import NotificationService
 from events.events import OrderEvent, ExecutionEvent, PlacedPendingOrderEvent, SignalType
 from utils.utils import Utils
-from utils.symbol_utils import normalize_symbol
+from utils.symbol_utils import normalize_symbol, get_asset_category
 import pandas as pd
 from queue import Queue 
 import MetaTrader5 as mt5
 import time
 from datetime import datetime
+import config
 
 class OrderExecutor():
 
-    def __init__(self, events_queue: Queue, portfolio: Portfolio, notification_service: NotificationService, connector: PlatformConnector, trading_director=None) -> None:
+    def __init__(self, events_queue: Queue, portfolio: Portfolio, notification_service: NotificationService, connector: PlatformConnector, trading_director=None, data_provider=None) -> None:
         self.events_queue = events_queue
         self.portfolio = portfolio
         self.notification_service = notification_service
         self.connector = connector
         self.trading_director = trading_director
+        self.data_provider = data_provider
         self._error_blacklist: dict[str, float] = {}
-        self._error_blacklist_seconds = 60
+        self._error_blacklist_seconds = 5
 
     def execute_order(self, order_event: OrderEvent) -> None:
+        print(f"{Utils.dateprint()} - ORD EXEC: execute_order recibido para {order_event.symbol} {order_event.signal} volumen={order_event.volume} sl={order_event.sl} tp={order_event.tp} tp1={order_event.tp1} tp2={order_event.tp2}")
         if order_event.symbol in self._error_blacklist:
             last_error_time = self._error_blacklist[order_event.symbol]
             if time.time() - last_error_time < self._error_blacklist_seconds:
+                print(f"{Utils.dateprint()} - ORD EXEC: {order_event.symbol} en blacklist, se omite")
                 return
             del self._error_blacklist[order_event.symbol]
 
@@ -36,12 +41,22 @@ class OrderExecutor():
                 print(f"{Utils.dateprint()} - ORD EXEC: Límite de portfolio alcanzado. Se omite orden para {order_event.symbol} ({order_event.signal} {order_event.volume} lotes)")
                 return
 
+        # Validación PRE-TRADE estricta: mercado abierto, cuenta, volúmenes
+        valid, msg = self._validate_pre_trade(order_event)
+        if not valid:
+            print(f"{Utils.dateprint()} - ORD EXEC: Validación pre-trade fallida para {order_event.symbol}: {msg}")
+            self._blacklist_symbol(order_event.symbol)
+            return
+
         if order_event.target_order == "MARKET":
             if order_event.tp1 > 0.0 and order_event.tp2 > 0.0:
+                print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden dual para {order_event.symbol}")
                 self._execute_dual_entry_order(order_event)
             else:
+                print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden market simple para {order_event.symbol}")
                 self._execute_market_order(order_event)
         else:
+            print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando orden pendiente para {order_event.symbol}")
             self._send_pending_order(order_event)
 
     def _blacklist_symbol(self, symbol: str) -> None:
@@ -55,6 +70,16 @@ class OrderExecutor():
         is_tradable, tradable_msg = self.connector.is_symbol_tradable(order_event.symbol)
         if not is_tradable:
             return False, f"Símbolo {order_event.symbol} no es negociable: {tradable_msg}"
+
+        # Verificación ESTRICTA de mercado abierto sin caché
+        try:
+            market_status = self.connector.get_market_status(order_event.symbol)
+            if not market_status.get("open", True):
+                reason = market_status.get("reason", "market_closed")
+                return False, f"Mercado cerrado para {order_event.symbol}: {reason}. No se envía orden."
+        except Exception as e:
+            logging.error("ORD EXEC: Error verificando mercado para %s: %s", order_event.symbol, e)
+            return False, f"Error verificando estado de mercado para {order_event.symbol}"
 
         account_info = self.connector.get_account_info()
         if account_info is None or not account_info.trade_allowed:
@@ -83,7 +108,6 @@ class OrderExecutor():
 
     @staticmethod
     def _make_valid_stops(signal: str, price: float, sl: float, tp: float, symbol_info, symbol: str = "") -> tuple:
-        from utils.symbol_utils import get_asset_category, normalize_symbol
         asset_cat = get_asset_category(normalize_symbol(symbol)) if symbol else "forex"
         
         if symbol_info is None:
@@ -92,24 +116,43 @@ class OrderExecutor():
         stops_level = int(getattr(symbol_info, 'trade_stops_level', 0) or 0)
         
         min_stop_points = max(stops_level, 0) + 5
-        max_stop_points = None
         if asset_cat == "gold":
-            min_stop_points = max(min_stop_points, 300)
-            max_stop_points = 2000
+            min_stop_points = max(min_stop_points, 5000)
         elif asset_cat == "crypto":
             price_for_calc = price if price > 0 else 1.0
             min_stop_points = max(min_stop_points, int(price_for_calc * 0.0005 / point) if point > 0 else 5000)
-            max_stop_points = int(price_for_calc * 0.02 / point) if point > 0 else 20000
         
         sl_distance_points = abs(sl - price) / point if point > 0 else 0
         tp_distance_points = abs(tp - price) / point if point > 0 else 0
         
-        if max_stop_points is not None:
-            sl_distance_points = min(sl_distance_points, max_stop_points)
-            tp_distance_points = min(tp_distance_points, max_stop_points)
-        
         sl_distance_points = max(sl_distance_points, min_stop_points)
         tp_distance_points = max(tp_distance_points, min_stop_points)
+
+        strategy_version = getattr(config, "STRATEGY_VERSION", "")
+        # Enforzar mínimo riesgo/recompensa 1:1.5 para V13 scalping extremo
+        if strategy_version in ("V14_DIVERSIFIED_RISK_MANAGED", "V13_DEMO_CLEAN_SLATE", "V12_UNIVERSAL_AGGRESSIVE", "V11_CRYPTO_VOLATILITY", "V10_ZERO_LOSS_SCALPING"):
+            symbol_key = normalize_symbol(symbol)
+            
+            # Mínimo R/R para V13 scalping extremo
+            min_tp_multiplier = 1.2
+            if asset_cat == "gold":
+                min_tp_multiplier = 1.5
+            elif asset_cat == "crypto":
+                min_tp_multiplier = 1.5
+            elif asset_cat == "index":
+                min_tp_multiplier = 1.3
+            elif asset_cat == "commodity":
+                min_tp_multiplier = 1.4
+            
+            min_tp_points = sl_distance_points * min_tp_multiplier
+            if tp_distance_points < min_tp_points:
+                tp_distance_points = min_tp_points
+                print(f"{Utils.dateprint()} - ORD EXEC: V13 SCALPING - TP ajustado a mínimo R/R 1:{min_tp_multiplier:.1f} para {symbol} sl_pts={sl_distance_points:.1f} tp_pts={tp_distance_points:.1f}")
+            
+            # Asegurar que SL no sea mayor que TP (protección contra señales mal calculadas)
+            if sl_distance_points >= tp_distance_points:
+                tp_distance_points = sl_distance_points * min_tp_multiplier
+                print(f"{Utils.dateprint()} - ORD EXEC: V13 SCALPING - SL mayor que TP corregido para {symbol} sl_pts={sl_distance_points:.1f} tp_pts={tp_distance_points:.1f}")
         
         if signal == "BUY":
             sl = price - sl_distance_points * point
@@ -125,6 +168,43 @@ class OrderExecutor():
 
         print(f"{Utils.dateprint()} - ORD EXEC: Stops calc point={point} stops_level={stops_level} raw_sl_pts={abs(sl - price) / point if point > 0 else 0:.2f} raw_tp_pts={abs(tp - price) / point if point > 0 else 0:.2f} => sl={sl} tp={tp}")
         return sl, tp
+
+    def _calculate_dynamic_tp(self, symbol: str, signal: str, entry_price: float, initial_sl: float, asset_cat: str, symbol_info) -> float:
+        """Calcula TP dinámico basado en niveles de Soporte/Resistencia para oro y forex."""
+        if not self.data_provider or asset_cat not in ("gold", "forex"):
+            return 0.0
+        
+        try:
+            from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
+            bars = self.data_provider.get_latest_closed_bars(symbol, "15min", 100)
+            if bars is None or bars.empty or len(bars) < 30:
+                return 0.0
+            
+            sr_analyzer = DynamicSRAnalyzer(lookback=50, peak_distance=3, tolerance_pct=0.0015)
+            sr_data = sr_analyzer.analyze(bars)
+            
+            support_levels = sr_data.get("support_levels", [])
+            resistance_levels = sr_data.get("resistance_levels", [])
+            current_price = sr_data.get("current_price", entry_price)
+            
+            if signal == "BUY":
+                # Para BUY, buscar resistencia más cercana como TP
+                targets = [r["price"] for r in resistance_levels if r["price"] > current_price]
+                if targets:
+                    nearest_resistance = min(targets)
+                    # TP a 80% de la distancia a la resistencia (deja margen)
+                    tp_price = entry_price + (nearest_resistance - entry_price) * 0.8
+                    return tp_price
+            else:
+                # Para SELL, buscar soporte más cercano como TP
+                targets = [s["price"] for s in support_levels if s["price"] < current_price]
+                if targets:
+                    nearest_support = max(targets)
+                    tp_price = entry_price - (entry_price - nearest_support) * 0.8
+                    return tp_price
+        except Exception as e:
+            print(f"{Utils.dateprint()} - ORD EXEC: Error calculando TP dinámico para {symbol}: {e}")
+        return 0.0
 
 
     def _execute_market_order(self, order_event: OrderEvent, skip_tp2_pending: bool = False) -> None:
@@ -142,15 +222,25 @@ class OrderExecutor():
 
         symbol_info = self.connector.get_symbol_info(order_event.symbol)
         if symbol_info:
-            order_event.volume = round(order_event.volume / symbol_info.volume_step) * symbol_info.volume_step
-            if order_event.volume < symbol_info.volume_min:
-                order_event.volume = symbol_info.volume_min
+            volume = round(order_event.volume / symbol_info.volume_step) * symbol_info.volume_step
+            if volume < symbol_info.volume_min:
+                volume = symbol_info.volume_min
+
+        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING":
+            symbol_key = normalize_symbol(order_event.symbol)
+            spread_cfg = getattr(config, "V10_SPREAD_FILTER_BY_SYMBOL", {}).get(symbol_key, {})
+            spread_filter_multiplier = spread_cfg.get("multiplier", getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5))
+            min_broker_coverage_points = spread_cfg.get("min_broker_coverage_points", getattr(config, "V10_MIN_BROKER_COVERAGE_POINTS", 2))
+            if symbol_info and hasattr(symbol_info, 'ask') and hasattr(symbol_info, 'bid'):
+                spread = symbol_info.ask - symbol_info.bid
+                raw_max = spread_filter_multiplier * max(getattr(symbol_info, 'trade_stops_level', 0), min_broker_coverage_points) * symbol_info.point
+                max_spread = max(raw_max, min_broker_coverage_points * symbol_info.point)
+                if spread > max_spread:
+                    print(f"{Utils.dateprint()} - ORD EXEC: Spread filter V10 rechaza {order_event.symbol} spread={spread:.5f} max={max_spread:.5f}")
+                    return
 
         sl = order_event.sl
         tp = order_event.tp
-        if sl <= 0.0 or tp <= 0.0:
-            sl = order_event.sl
-            tp = order_event.tp
         comment = "FWK Market Order"
 
         if tp == 0.0 and order_event.tp1 > 0.0 and order_event.tp2 <= 0.0:
@@ -168,6 +258,19 @@ class OrderExecutor():
             print(f"{Utils.dateprint()} - ORD EXEC: {order_event.symbol} point={symbol_info.point} trade_stops_level={symbol_info.trade_stops_level} filling={filling_mode} ask={symbol_info.ask} bid={symbol_info.bid} spread={symbol_info.ask - symbol_info.bid:.2f}")
         price = symbol_info.ask if order_event.signal == "BUY" else symbol_info.bid
 
+        # TP dinámico basado en S/R para oro y forex (V10)
+        asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
+        if getattr(config, "STRATEGY_VERSION", "") == "V10_ZERO_LOSS_SCALPING" and asset_cat in ("gold", "forex"):
+            dynamic_tp = self._calculate_dynamic_tp(order_event.symbol, order_event.signal, price, order_event.sl, asset_cat, symbol_info)
+            if dynamic_tp > 0:
+                # Usar TP dinámico si es más conservador (más cerca) que el TP original
+                if order_event.signal == "BUY" and dynamic_tp < tp:
+                    tp = dynamic_tp
+                    print(f"{Utils.dateprint()} - ORD EXEC: TP dinámico S/R para {order_event.symbol} BUY: {tp:.5f}")
+                elif order_event.signal == "SELL" and dynamic_tp > tp:
+                    tp = dynamic_tp
+                    print(f"{Utils.dateprint()} - ORD EXEC: TP dinámico S/R para {order_event.symbol} SELL: {tp:.5f}")
+
         sl, tp = self._make_valid_stops(order_event.signal, price, sl, tp, symbol_info, symbol=order_event.symbol)
 
         if order_event.signal == "BUY" and (sl >= price or tp <= price):
@@ -180,25 +283,26 @@ class OrderExecutor():
         market_order_request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": order_event.symbol,
-            "volume": order_event.volume,
+            "volume": volume,
             "price": price,
             "sl": sl,
             "tp": tp,
             "type": order_type,
-            "deviation": 10,
+            "deviation": 20 if order_event.symbol.startswith(("XAU", "GOLD")) else 10,
             "magic": order_event.magic_number,
             "comment": comment,
             "type_filling": filling_mode,
         }
 
-        print(f"{Utils.dateprint()} - ORD EXEC: {order_event.signal} {order_event.symbol} exec_price={price} spread={symbol_info.ask - symbol_info.bid:.2f} sl={sl} tp={tp}")
+        print(f"{Utils.dateprint()} - ORD EXEC: {order_event.signal} {order_event.symbol} exec_price={price} spread={symbol_info.ask - symbol_info.bid:.2f} sl={sl} tp={tp}" + (" [PRIORITY:GOLD]" if order_event.symbol.startswith(("XAU", "GOLD")) else ""))
         result = self.connector.order_send(market_order_request)
         if result.retcode not in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
             if result.retcode == mt5.TRADE_RETCODE_INVALID_STOPS and (sl != 0.0 or tp != 0.0):
-                min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
-                from utils.symbol_utils import get_asset_category, normalize_symbol
                 asset_cat = get_asset_category(normalize_symbol(order_event.symbol))
-                if asset_cat == "crypto":
+                min_stops = int(getattr(symbol_info, 'trade_stops_level', 0) or 0) + 5
+                if asset_cat == "gold":
+                    min_stops = max(min_stops, 5000)
+                elif asset_cat == "crypto":
                     min_stops = max(min_stops, int(price * 0.0005 / symbol_info.point) if symbol_info.point > 0 else 5000)
                 
                 point = symbol_info.point
@@ -238,7 +342,7 @@ class OrderExecutor():
                     return
 
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            message = f"Market Order {order_event.signal} para {order_event.symbol} de {order_event.volume} lotes ejecutada correctamente. Ticket: {result.order}"
+            message = f"Market Order {order_event.signal} para {order_event.symbol} de {volume} lotes ejecutada correctamente. Ticket: {result.order}"
             print(f"{Utils.dateprint()} - {message}")
             self.notification_service.send_notification(
                 title=f"✅ ORDEN EJECUTADA - {order_event.symbol}",
@@ -248,6 +352,15 @@ class OrderExecutor():
             error_message = f"Error al ejecutar Market Order {order_event.signal} para {order_event.symbol}: {result.comment} (retcode: {result.retcode})"
             print(f"{Utils.dateprint()} - {error_message}")
             print(f"{Utils.dateprint()} - ORD EXEC: Request: {market_order_request}")
+            
+            # Manejo específico de mercado cerrado (retcode 10018)
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)  # Blacklist extendida
+                error_message += " - MERCADO CERRADO"
+                logging.warning("ORD EXEC: Mercado cerrado para %s. Blacklist extendida a %d segundos.",
+                               order_event.symbol, self._error_blacklist_seconds)
+            
             self._blacklist_symbol(order_event.symbol)
             self.notification_service.send_notification(
                 title=f"❌ FALLO DE ORDEN - {order_event.symbol}",
@@ -261,15 +374,19 @@ class OrderExecutor():
         elif "TP2" in comment:
             log_tp_part = f"TP2={tp}"
         
-        print(f"{Utils.dateprint()} - Market Order {order_event.signal} para {order_event.symbol} de {order_event.volume} lotes ejecutada correctamente ({log_tp_part})")
+        print(f"{Utils.dateprint()} - Market Order {order_event.signal} para {order_event.symbol} de {volume} lotes ejecutada correctamente ({log_tp_part})")
         self._create_and_put_execution_event(
             result,
             tp1=order_event.tp1,
             tp2=order_event.tp2,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
         if not skip_tp2_pending and order_event.tp1 > 0.0 and order_event.tp2 > 0.0:
             self._place_tp2_pending_order(order_event, result)
@@ -298,9 +415,13 @@ class OrderExecutor():
             tp2=order_event.tp2,
             volume=half_volume,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
 
         tp2_order = OrderEvent(
@@ -315,9 +436,13 @@ class OrderExecutor():
             tp2=order_event.tp2,
             volume=half_volume,
             strategy_name=order_event.strategy_name,
+            primary_strategy_name=order_event.primary_strategy_name,
             asset_category=order_event.asset_category,
             market_regime=order_event.market_regime,
             analysis_context=order_event.analysis_context,
+            risk_pct_override=order_event.risk_pct_override,
+            quality_score=order_event.quality_score,
+            justification=order_event.justification,
         )
 
         print(f"{Utils.dateprint()} - ORD EXEC: Ejecutando entrada dual para {order_event.symbol} - Volumen total: {order_event.volume}, TP1: {order_event.tp1}, TP2: {order_event.tp2}")
@@ -373,6 +498,13 @@ class OrderExecutor():
         else:
             message = f"Error al colocar pending order {order_event.signal} {order_event.target_order} para {order_event.symbol}: {result.comment} (retcode: {result.retcode})"
             print(f"{Utils.dateprint()} - {message}")
+            
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)
+                message += " - MERCADO CERRADO"
+                logging.warning("ORD EXEC: Mercado cerrado para pending %s. Blacklist extendida.", order_event.symbol)
+            
             self._blacklist_symbol(order_event.symbol)
             self.notification_service.send_notification(
                 title=f"❌ FALLO DE ORDEN PENDIENTE - {order_event.symbol}",
@@ -433,6 +565,13 @@ class OrderExecutor():
             self._create_and_put_execution_event(result, exit_reason=exit_reason)
         else:
             print(f"{Utils.dateprint()} - Error al cerrar la posición {ticket} en {position.symbol} con volumen {close_volume}: {result.comment}")
+            
+            market_closed_retcode = getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018)
+            if result.retcode == market_closed_retcode:
+                self._error_blacklist_seconds = max(self._error_blacklist_seconds, 30)
+                logging.warning("ORD EXEC: Mercado cerrado al cerrar posición %s en %s. Blacklist extendida.",
+                               ticket, position.symbol)
+            
             self._blacklist_symbol(position.symbol)
 
     def close_strategy_long_positions_by_symbol(self, symbol: str) -> None:
@@ -459,7 +598,7 @@ class OrderExecutor():
             volume=order_event.volume)
         self.events_queue.put(placed_pending_order_event)
 
-    def _create_and_put_execution_event(self, order_result, tp1=0.0, tp2=0.0, strategy_name="UNKNOWN", asset_category="forex", market_regime="unknown", analysis_context=None, exit_reason: str = "OPEN") -> None:
+    def _create_and_put_execution_event(self, order_result, tp1=0.0, tp2=0.0, strategy_name="UNKNOWN", primary_strategy_name="UNKNOWN", asset_category="forex", market_regime="unknown", analysis_context=None, exit_reason: str = "OPEN", risk_pct_override: float = 0.0, quality_score: float = 0.0, justification: str = "") -> None:
         deal = None
         fill_time = datetime.now()
         position_ticket = 0
@@ -495,11 +634,15 @@ class OrderExecutor():
             position_ticket=position_ticket,
             strategy_type=strategy_name,
             strategy_name=strategy_name,
+            primary_strategy_name=primary_strategy_name or strategy_name,
             asset_category=asset_category,
             market_regime=market_regime,
             analysis_context=analysis_context,
             deal_ticket=deal_ticket,
             exit_reason=exit_reason,
+            risk_pct_override=risk_pct_override,
+            quality_score=quality_score,
+            justification=justification,
         )
 
         self.events_queue.put(execution_event)
@@ -513,14 +656,16 @@ class OrderExecutor():
         position = positions[0]
         symbol_info = self.connector.get_symbol_info(position.symbol)
         if symbol_info:
-            new_sl, new_tp = self._make_valid_stops(
-                "BUY" if position.type == mt5.ORDER_TYPE_BUY else "SELL",
-                position.price_current,
-                new_sl,
-                new_tp if new_tp != 0.0 else position.tp,
-                symbol_info,
-                symbol=position.symbol,
-            )
+            point = symbol_info.point
+            decimals = max(0, -int(__import__('math').floor(__import__('math').log10(point)))) if point > 0 else 0
+            new_sl = round(new_sl, decimals)
+            if new_tp != 0.0:
+                new_tp = round(new_tp, decimals)
+
+            if position.type == mt5.ORDER_TYPE_BUY and new_sl >= position.price_current:
+                new_sl = position.price_current - point
+            elif position.type == mt5.ORDER_TYPE_SELL and new_sl <= position.price_current:
+                new_sl = position.price_current + point
 
         request = {
             "action": mt5.TRADE_ACTION_SLTP,

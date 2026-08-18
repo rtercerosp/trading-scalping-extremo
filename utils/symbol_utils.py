@@ -64,7 +64,29 @@ FOREX_SYMBOLS = {
     "USDHKD",
 }
 
-KNOWN_SYMBOLS = CRYPTO_SYMBOLS | GOLD_SYMBOLS | FOREX_SYMBOLS
+INDEX_SYMBOLS = {
+    "US500",
+    "USTEC",
+    "US30",
+    "US100",
+    "SPX500",
+    "NAS100",
+    "DOW30",
+    "UK100",
+    "GER40",
+    "JPN225",
+}
+
+COMMODITY_SYMBOLS = {
+    "UKOIL",
+    "USOIL",
+    "NGAS",
+    "XAGUSD",
+    "SILVER",
+    "COPPER",
+}
+
+KNOWN_SYMBOLS = CRYPTO_SYMBOLS | GOLD_SYMBOLS | FOREX_SYMBOLS | INDEX_SYMBOLS | COMMODITY_SYMBOLS
 _SUFFIX_CHARS = set("CM+._-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 
@@ -95,6 +117,10 @@ def get_asset_category(symbol: str) -> str:
         return "crypto"
     if normalized in GOLD_SYMBOLS:
         return "gold"
+    if normalized in INDEX_SYMBOLS:
+        return "index"
+    if normalized in COMMODITY_SYMBOLS:
+        return "commodity"
     return "forex"
 
 

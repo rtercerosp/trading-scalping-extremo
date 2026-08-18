@@ -17,7 +17,7 @@ from utils.symbol_utils import get_asset_category, normalize_symbol, symbol_matc
 class SignalFibScalp(SignalSmartMoney):
     def __init__(self, properties: SmartMoneySignalProps, connector: PlatformConnector):
         super().__init__(properties, connector)
-        self._allowed_symbols = ["EURUSD", "EURUSD.", "GBPUSD", "GBPUSD.", "XAUUSD", "XAUUSDc", "BTCUSD", "BTCUSDc", "ETHUSD", "ETHUSDc"]
+        self._allowed_symbols = ["EURUSD", "EURUSD.", "EURUSDc", "GBPUSD", "GBPUSD.", "GBPUSDc"]
 
     def _compute_fibonacci_extension(self, swing_high: float, swing_low: float, signal_type: str) -> dict:
         diff = swing_high - swing_low
@@ -129,7 +129,6 @@ class SignalFibScalp(SignalSmartMoney):
             tp1 = ask_price + 0.618 * sl_distance_points * symbol_info.point
             tp2 = ask_price + 1.618 * sl_distance_points * symbol_info.point
             tp = ask_price + tp_distance_points * symbol_info.point
-            print(f"{Utils.dateprint()} - FIB SCALP: LONG {symbol} rsi={current_rsi:.2f} atr={atr_points:.1f} pts sl={sl:.5f} tp1={tp1:.5f} tp2={tp2:.5f}")
             return SignalEvent(
                 symbol=symbol,
                 signal="BUY",
@@ -147,7 +146,6 @@ class SignalFibScalp(SignalSmartMoney):
             tp1 = bid_price - 0.618 * sl_distance_points * symbol_info.point
             tp2 = bid_price - 1.618 * sl_distance_points * symbol_info.point
             tp = bid_price - tp_distance_points * symbol_info.point
-            print(f"{Utils.dateprint()} - FIB SCALP: SHORT {symbol} rsi={current_rsi:.2f} atr={atr_points:.1f} pts sl={sl:.5f} tp1={tp1:.5f} tp2={tp2:.5f}")
             return SignalEvent(
                 symbol=symbol,
                 signal="SELL",

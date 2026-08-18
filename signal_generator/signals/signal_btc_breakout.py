@@ -12,6 +12,7 @@ from platform_connector.platform_connector import PlatformConnector
 from ..interfaces.signal_generator_interface import ISignalGenerator
 from ..properties.signal_generator_properties import TrendPullbackProps
 from utils.utils import Utils
+from utils.symbol_utils import symbol_matches
 
 
 class SignalBTCBreakout(ISignalGenerator):
@@ -23,6 +24,7 @@ class SignalBTCBreakout(ISignalGenerator):
         self.sl_atr_mult = 0.8
         self.tp_atr_mult = 1.2
         self.min_atr_points = 80
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     @staticmethod
     def _atr(bars: pd.DataFrame, period: int) -> pd.Series:
@@ -39,7 +41,9 @@ class SignalBTCBreakout(ISignalGenerator):
                        portfolio: Portfolio, order_executor: OrderExecutor,
                        asset_category: str = "forex") -> SignalEvent | None:
         symbol = data_event.symbol
-        if symbol.upper() != "BTCUSD":
+        if asset_category != "crypto":
+            return None
+        if not symbol_matches(symbol, self._allowed_symbols):
             return None
 
         bars = data_provider.get_latest_closed_bars(symbol, self.entry_timeframe, self.lookback + 10)

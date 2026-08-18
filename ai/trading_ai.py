@@ -23,8 +23,12 @@ class TradingAI:
         self._load_backtest_scores(storage_path)
 
     def _load_backtest_scores(self, storage_path: str) -> None:
-        backtest_path = os.path.join(storage_path, "backtest_results.json")
-        if not os.path.exists(backtest_path):
+        candidate_paths = [
+            os.path.join(storage_path, "backtest_results.json"),
+            os.path.join("ai", "backtest_results.json"),
+        ]
+        backtest_path = next((path for path in candidate_paths if os.path.exists(path)), None)
+        if backtest_path is None:
             return
         try:
             with open(backtest_path, 'r') as f:
@@ -96,7 +100,7 @@ class TradingAI:
             if preferred:
                 return preferred[0]
         elif market_regime == "range":
-            preferred = [s for s in available_strategies if "EURUSD" in s or "TrendPullback" in s]
+            preferred = [s for s in available_strategies if "TrendPullback" in s]
             if preferred:
                 return preferred[0]
 

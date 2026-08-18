@@ -107,6 +107,8 @@ if __name__ == "__main__":
         max_positions_per_symbol=config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
         max_positions_by_symbol=config.PORTFOLIO_MAX_POSITIONS_BY_SYMBOL,
         max_positions_by_category=config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+        max_notional_pct_per_trade=config.PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE,
+        connector=connector,
     )
 
     # --- FASE 2: INSTANCIACIÓN DEL CEREBRO Y MÓDULOS DE IA ---
@@ -126,6 +128,7 @@ if __name__ == "__main__":
         portfolio=portfolio,
         notification_service=notifications,
         connector=connector,
+        data_provider=data_provider,
     )
 
     break_even_manager: BreakEvenManager = BreakEvenManager(
@@ -192,7 +195,7 @@ if __name__ == "__main__":
                 "max_total_positions": 8,
                 "max_positions_per_symbol": 2,
                 "max_positions_by_category": {"crypto": 4, "forex": 6},
-                "strategy": "Asset_Isolated_Guarded_Gold_BTC_ETH_EURUSD",
+                "strategy": "Asset_Isolated_Guarded_Category_Based",
                 "ai_enabled": True,
                 "ai_features": ["market_regime_detection", "strategy_selection", "per_asset_learning", "gold_guard_mode", "full_toolset_loading", "expert_rules_loading", "backtest_preloaded_scores", "news_aware_trading"],
             },
@@ -264,7 +267,96 @@ if __name__ == "__main__":
                 "circuit_breaker_max_consecutive_losses": 3, # Valor hardcodeado en TradingBrain
             },
             "Versión V9 con refactorización completa para máxima calidad de trade, explicabilidad y protección de cuenta. Incluye score de calidad de señal, justificación legible, circuit breaker, filtro de riesgo dinámico y mejoras de código.",
-            set_active=True, # Set V9 as the active version
+            set_active=False,
+        )
+        trading_brain.register_current_version(
+            "V10_ZERO_LOSS_SCALPING",
+            "Scalping Extremo V10 Zero Loss",
+            {
+                "timeframe": config.ENTRY_TIMEFRAME,
+                "trend_timeframe": config.TREND_TIMEFRAME,
+                "risk_pct": config.SIZER_DEFAULT_RISK_PCT,
+                "max_leverage_factor": config.RISK_MAX_LEVERAGE_FACTOR,
+                "sl_atr_mult": config.LEARNING_DEFAULT_SL_ATR_MULT,
+                "tp_atr_mult": config.LEARNING_DEFAULT_TP_ATR_MULT,
+                "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
+                "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
+                "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+                "strategy": "V10_ZERO_LOSS_SCALPING",
+                "ai_enabled": True,
+                "ai_features": [
+                    "market_regime_detection", "strategy_selection", "per_asset_learning", "fibonacci_scalping",
+                    "adaptive_trailing", "news_aware_trading", "aggressive_tp", "early_trailing",
+                    "zero_loss_breakeven", "reverse_protection", "gap_protection", "compounding_bonus",
+                    "spread_filter", "maximize_profit_objective", "broker_cost_coverage",
+                ],
+                "circuit_breaker_daily_loss_pct_limit": 0.02,
+                "circuit_breaker_max_consecutive_losses": 3,
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
+                "zero_loss_breakeven_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}),
+                "zero_loss_breakeven_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}),
+                "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
+                "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+                "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.15),
+                "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
+                "trailing_aggressive_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}),
+                "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+                "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
+            },
+            "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
+            set_active=False,
+        )
+        # Register V11_CRYPTO_VOLATILITY
+        trading_brain.register_current_version(
+            "V11_CRYPTO_VOLATILITY",
+            "Scalping Extremo V11 Crypto Volatility",
+            {
+                "strategy": "V11_CRYPTO_VOLATILITY",
+                "description": "Hereda V10 y aplica parámetros hiper-agresivos y una nueva estrategia de breakout para criptomonedas.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "new_strategy": "SignalCryptoVolatilityBreakout",
+            },
+            "Versión V11 que especializa V10 para criptomonedas con parámetros de break-even y trailing stop más agresivos, y una nueva estrategia de breakout de volatilidad.",
+            set_active=False,
+        )
+        # Register V12_UNIVERSAL_AGGRESSIVE
+        trading_brain.register_current_version(
+            "V12_UNIVERSAL_AGGRESSIVE",
+            "Scalping Extremo V12 Universal Aggressive",
+            {
+                "strategy": "V12_UNIVERSAL_AGGRESSIVE",
+                "description": "Extiende la filosofía agresiva de V11 a Oro y Forex, con parámetros de gestión de riesgo a medida y una nueva estrategia para Oro.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "aggressive_params": getattr(config, "V12_AGGRESSIVE_PARAMS", {}),
+                "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
+            },
+            "Versión V12 que universaliza la operativa agresiva. Hereda V11 para cripto y aplica nuevos parámetros para oro y forex. Introduce SignalGoldMomentumReversal.",
+            set_active=False,
+        )
+        # Register V14_DIVERSIFIED_RISK_MANAGED
+        trading_brain.register_current_version(
+            "V14_DIVERSIFIED_RISK_MANAGED",
+            "Scalping Extremo V14 Diversified Risk Managed",
+            {
+                "strategy": "V14_DIVERSIFIED_RISK_MANAGED",
+                "description": "Versión V14 con gestión de riesgo diversificada: consenso estricto, límites de cartera reducidos, circuit breaker endurecido y R/R optimizado por categoría.",
+                "crypto_params": getattr(config, "V11_CRYPTO_PARAMS", {}),
+                "aggressive_params": getattr(config, "V12_AGGRESSIVE_PARAMS", {}),
+                "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
+                "new_strategies": ["SignalCryptoVolatilityBreakout", "SignalGoldMomentumReversal"],
+                "key_changes": [
+                    "Consenso mínimo 2 estrategias",
+                    "Calidad mínima 70",
+                    "Max 12 posiciones totales, 2 por símbolo",
+                    "Notional máximo 25% equity por trade",
+                    "Circuit breaker diario 1%",
+                    "Circuit breaker por activo -8%/-15%/-20%",
+                    "R/R mínimo 1.2-1.5 según categoría",
+                    "Boost moderado top 2 activos",
+                ],
+            },
+            "Versión V14 con gestión de riesgo diversificada. Consenso estricto, límites reducidos, circuit breaker endurecido y reward-to-risk optimizado para scalping seguro.",
+            set_active=True,
         )
 
     trading_director: TradingDirector = TradingDirector(
@@ -294,7 +386,7 @@ if __name__ == "__main__":
                 "sl_atr_mult": 1.2,
                 "tp_atr_mult": 2.0,
                 "max_total_positions": 20,
-                "max_positions_per_symbol": 5,
+                "max_positions_per_symbol": 2,
                 "max_positions_by_category": {"crypto": 8, "gold": 8, "forex": 8},
                 "strategy": "Knowledge_Preloaded_Extreme_Scalping",
                 "ai_enabled": True,
@@ -325,10 +417,9 @@ if __name__ == "__main__":
             },
             "Version optimizada con modo scalping extremo. Incluye estrategia Fibonacci, TP agresivos, trailing ultra-early, exclusion de perdedores. (Informe de V8)",
         )
-        # Save report for V9_SCALPING_MAX_QUALITY
         trading_brain.save_version_report(
-            "V9_SCALPING_MAX_QUALITY",
-            "Scalping Extremo V9 Max Quality",
+            "V10_ZERO_LOSS_SCALPING",
+            "Scalping Extremo V10 Zero Loss",
             {
                 "timeframe": config.ENTRY_TIMEFRAME,
                 "trend_timeframe": config.TREND_TIMEFRAME,
@@ -339,23 +430,73 @@ if __name__ == "__main__":
                 "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
                 "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
                 "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
-                "strategy": "V9_SCALPING_MAX_QUALITY",
+                "strategy": "V10_ZERO_LOSS_SCALPING",
                 "ai_enabled": True,
                 "ai_features": [
                     "market_regime_detection", "strategy_selection", "per_asset_learning", "fibonacci_scalping",
                     "adaptive_trailing", "news_aware_trading", "aggressive_tp", "early_trailing",
-                    "signal_quality_scoring", "signal_justification", "circuit_breaker", "dynamic_risk_filtering",
+                    "zero_loss_breakeven", "reverse_protection", "gap_protection", "compounding_bonus",
+                    "spread_filter", "maximize_profit_objective", "broker_cost_coverage",
                 ],
                 "circuit_breaker_daily_loss_pct_limit": 0.02,
                 "circuit_breaker_max_consecutive_losses": 3,
+                "zero_loss_breakeven_trigger_pct": getattr(config, "V10_BREAK_EVEN_TRIGGER_PCT", 0.30),
+                "zero_loss_breakeven_min_trigger_points": getattr(config, "V10_BREAK_EVEN_MIN_TRIGGER_POINTS", {}),
+                "zero_loss_breakeven_max_trigger_points": getattr(config, "V10_BREAK_EVEN_MAX_TRIGGER_POINTS", {}),
+                "reverse_protection_pct": getattr(config, "V10_REVERSE_PROTECTION_PCT", 0.25),
+                "gap_protection_pct": getattr(config, "V10_GAP_PROTECTION_PCT", 0.003),
+                "pre_breakeven_max_sl_improvement_pct": getattr(config, "V10_PRE_BREAK_EVEN_MAX_SL_IMPROVEMENT_PCT", 0.15),
+                "trailing_aggressive_activation_pct": getattr(config, "V10_TRAILING_AGGRESSIVE_ACTIVATION_PCT", 0.003),
+                "trailing_aggressive_offset_points": getattr(config, "V10_TRAILING_AGGRESSIVE_OFFSET_POINTS", {}),
+                "compounding_volume_multiplier": getattr(config, "V10_COMPOUNDING_VOLUME_MULTIPLIER", 2.0),
+                "spread_max_points_multiplier": getattr(config, "V10_SPREAD_MAX_POINTS_MULTIPLIER", 1.5),
             },
-            "Versión V9 con refactorización completa para máxima calidad de trade, explicabilidad y protección de cuenta. Incluye score de calidad de señal, justificación legible, circuit breaker, filtro de riesgo dinámico y mejoras de código. (Informe de V9)",
+            "Version V10 Zero Loss. Break-even al 30% del TP (mínimo en puntos por símbolo < TP distance), SL = entry + costos broker, micro-profit lock, reverse protection 25%, trailing agresivo por puntos, compounding bonus 2x, spread filter por símbolo ajustado.",
+        )
+        trading_brain.save_version_report(
+            "V14_DIVERSIFIED_RISK_MANAGED",
+            "Scalping Extremo V14 Diversified Risk Managed",
+            {
+                "timeframe": config.ENTRY_TIMEFRAME,
+                "trend_timeframe": config.TREND_TIMEFRAME,
+                "risk_pct": config.SIZER_DEFAULT_RISK_PCT,
+                "max_leverage_factor": config.RISK_MAX_LEVERAGE_FACTOR,
+                "sl_atr_mult": config.LEARNING_DEFAULT_SL_ATR_MULT,
+                "tp_atr_mult": config.LEARNING_DEFAULT_TP_ATR_MULT,
+                "max_total_positions": config.PORTFOLIO_MAX_TOTAL_POSITIONS,
+                "max_positions_per_symbol": config.PORTFOLIO_MAX_POSITIONS_PER_SYMBOL,
+                "max_positions_by_category": config.PORTFOLIO_MAX_POSITIONS_BY_CATEGORY,
+                "strategy": "V14_DIVERSIFIED_RISK_MANAGED",
+                "ai_enabled": True,
+                "new_assets": ["XAUUSD", "EURUSD", "USDJPY", "US500", "USTEC", "BTCUSD", "US30", "ETHUSD", "UKOIL"],
+                "max_notional_pct_per_trade": config.PORTFOLIO_MAX_NOTIONAL_PCT_PER_TRADE,
+                "consensus_threshold": 2,
+                "quality_threshold_default": config.V13_QUALITY_THRESHOLD_DEFAULT,
+                "asset_circuit_breaker_enabled": True,
+                "asset_drawdown_warning_pct": config.ASSET_DRAWDOWN_WARNING_PCT,
+                "asset_drawdown_breaker_pct": config.ASSET_DRAWDOWN_BREAKER_PCT,
+                "asset_drawdown_exclude_pct": config.ASSET_DRAWDOWN_EXCLUDE_PCT,
+                "asset_breaker_cooldown_seconds": config.ASSET_BREAKER_COOLDOWN_SECONDS,
+            },
+            "Version V14 con gestión de riesgo diversificada. Consenso estricto, límites reducidos, circuit breaker endurecido y reward-to-risk optimizado para scalping seguro.",
         )
 
         try:
             trading_brain.resume_open_positions(magic_number=config.MAGIC_NUMBER)
         except Exception as e:
             print(f"{Utils.dateprint()} - BRAIN: Error al reanudar posiciones abiertas: {e}")
+
+        try:
+            xau_positions = portfolio.get_strategy_open_positions_by_symbol("XAUUSD")
+            if len(xau_positions) > 2:
+                print(f"{Utils.dateprint()} - PORTFOLIO: Cerrando {len(xau_positions) - 2} posiciones preexistentes de XAUUSD para liberar cupo")
+                for pos in xau_positions[:len(xau_positions) - 2]:
+                    try:
+                        order_executor.close_position_by_ticket(pos.ticket)
+                    except Exception as e:
+                        print(f"{Utils.dateprint()} - Error cerrando posición {pos.ticket}: {e}")
+        except Exception as e:
+            print(f"{Utils.dateprint()} - Error revisando posiciones preexistentes de XAUUSD: {e}")
 
         trading_brain.reset_daily_circuit_breaker()
         logging.info("CIRCUIT BREAKER: Reset diario aplicado. Límite diario: %.2f%%", trading_brain._daily_loss_pct_limit * 100)

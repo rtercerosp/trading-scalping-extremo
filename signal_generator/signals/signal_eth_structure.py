@@ -17,16 +17,16 @@ from utils.symbol_utils import symbol_matches
 
 class SignalETHStructureBreakout(ISignalGenerator):
     def __init__(self, properties: TrendPullbackProps, connector: PlatformConnector):
-        self.entry_timeframe = "5min"
+        self.entry_timeframe = "1min"
         self.connector = connector
         self.trend_timeframe = "15min"
         self.lookback = 30
         self.atr_period = max(properties.atr_period, 2)
-        self.sl_atr_mult = 1.0
-        self.tp_atr_mult = 1.5
-        self.min_atr_points = 20
+        self.sl_atr_mult = 1.2
+        self.tp_atr_mult = 2.5
+        self.min_atr_points = 100
         self.breakout_lookback = 3
-        self._allowed_symbols = ["ETHUSD", "ETHUSDc", "BTCUSD", "BTCUSDc"]
+        self._allowed_symbols = ["ETHUSD", "ETHUSDc"]
 
     def set_timeframes(self, entry_timeframe: str, trend_timeframe: str | None = None, rsi_timeframe: str | None = None) -> None:
         self.entry_timeframe = entry_timeframe
@@ -119,8 +119,9 @@ class SignalETHStructureBreakout(ISignalGenerator):
         volume_ok = current_volume > avg_volume if avg_volume > 0 else True
 
         min_stop_points = max(getattr(symbol_info, 'trade_stops_level', 0), 0) + 5
-        sl_distance_points = max(self.sl_atr_mult * atr_points, min_stop_points)
-        tp_distance_points = max(self.tp_atr_mult * atr_points, min_stop_points)
+        spread_buffer_points = getattr(symbol_info, 'spread_points', 0) * 1.5 + 20
+        sl_distance_points = max(self.sl_atr_mult * atr_points + spread_buffer_points, min_stop_points)
+        tp_distance_points = max(self.tp_atr_mult * atr_points + spread_buffer_points * 1.2, min_stop_points)
 
         ask_price = symbol_info.ask
         bid_price = symbol_info.bid
@@ -148,12 +149,11 @@ class SignalETHStructureBreakout(ISignalGenerator):
         )
 
         if long_trigger and ask_price is not None:
-            sl_structure = entry_low.iloc[-1] - sl_distance_points * symbol_info.point
-            sl = min(sl_structure, ask_price - sl_distance_points * symbol_info.point)
+            sl = ask_price - sl_distance_points * symbol_info.point
             tp = ask_price + tp_distance_points * symbol_info.point
-            tp1 = ask_price + 0.8 * sl_distance_points * symbol_info.point
+            tp1 = ask_price + sl_distance_points * 1.2 * symbol_info.point
             tp2 = tp
-            print(f"{Utils.dateprint()} - SIGNAL ETH STRUCT: LONG sl_dist={sl_distance_points:.2f} sl={sl} tp={tp} ask={ask_price} rsi={current_rsi:.2f} vol_ok={volume_ok}")
+            print(f"{Utils.dateprint()} - SIGNAL ETH STRUCT: LONG sl_dist={sl_distance_points:.2f} tp1_dist={sl_distance_points * 1.2:.2f} tp_dist={tp_distance_points:.2f} ask={ask_price} rsi={current_rsi:.2f} vol_ok={volume_ok}")
             return SignalEvent(
                 symbol=symbol,
                 signal="BUY",
@@ -167,12 +167,11 @@ class SignalETHStructureBreakout(ISignalGenerator):
             )
 
         if short_trigger and bid_price is not None:
-            sl_structure = entry_high.iloc[-1] + sl_distance_points * symbol_info.point
-            sl = max(sl_structure, bid_price + sl_distance_points * symbol_info.point)
+            sl = bid_price + sl_distance_points * symbol_info.point
             tp = bid_price - tp_distance_points * symbol_info.point
-            tp1 = bid_price - 0.8 * sl_distance_points * symbol_info.point
+            tp1 = bid_price - sl_distance_points * 1.2 * symbol_info.point
             tp2 = tp
-            print(f"{Utils.dateprint()} - SIGNAL ETH STRUCT: SHORT sl_dist={sl_distance_points:.2f} sl={sl} tp={tp} bid={bid_price} rsi={current_rsi:.2f} vol_ok={volume_ok}")
+            print(f"{Utils.dateprint()} - SIGNAL ETH STRUCT: SHORT sl_dist={sl_distance_points:.2f} tp1_dist={sl_distance_points * 1.2:.2f} tp_dist={tp_distance_points:.2f} bid={bid_price} rsi={current_rsi:.2f} vol_ok={volume_ok}")
             return SignalEvent(
                 symbol=symbol,
                 signal="SELL",

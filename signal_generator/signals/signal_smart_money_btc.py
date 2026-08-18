@@ -18,12 +18,12 @@ from utils.symbol_utils import symbol_matches
 class SignalSmartMoneyBTC(SignalSmartMoney):
     def __init__(self, properties: SmartMoneySignalProps, connector: PlatformConnector):
         super().__init__(properties, connector)
-        self._allowed_symbols = ["BTCUSD", "BTCUSD."]
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
         self.min_atr_points = 200
 
     def set_timeframes(self, entry_timeframe: str, trend_timeframe: str | None = None, rsi_timeframe: str | None = None) -> None:
         super().set_timeframes(entry_timeframe, trend_timeframe, rsi_timeframe)
-        self._allowed_symbols = ["BTCUSD", "BTCUSD."]
+        self._allowed_symbols = ["BTCUSD", "BTCUSDc"]
 
     def generate_signal(self, data_event: DataEvent, data_provider: DataProvider,
                         portfolio: Portfolio, order_executor: OrderExecutor,
