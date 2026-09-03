@@ -53,6 +53,19 @@
 - Límites hard: `LEARNING_RISK_PCT_MIN=0.25%`, `LEARNING_RISK_PCT_MAX=2.0%` (desde config.py)
 - Próximo: Paper trading en demo Exness para validación en vivo de eventos de sizing
 
+**TASK-033: Implementación de Walk-Forward Analysis Automatizado - COMPLETADO**
+- Módulo creado: `src/backtesting/walk_forward_engine.py`
+- Función `run_walk_forward_optimization()`: Sliding window WFA con ventana fija (train_window=200, step=50)
+- Función `run_anchored_walk_forward()`: Anchored/Expanding window WFA (initial_train=500, step=50)
+- Integración completa: FeaturePipeline → Technical Features → Triple Barrier → RF → OOS predictions
+- Validación en datos sintéticos (3000 barras OHLCV):
+  - **Sliding WFA**: 53 iteraciones, 2650 predicciones OOS, Accuracy global 45.66%
+  - **Anchored WFA**: 47 iteraciones, 2350 predicciones OOS, Accuracy global 47.53%
+- Classification report OOS por clase: SL (-1): 51% acc, Time (0): 48% acc, PT (1): 34% acc
+- Rolling accuracy tracking (ventana 100) para detectar decay de modelo
+- Prepara re-entrenamiento automático mensual/trimestral en producción
+
 **Fase 4: Validación estadística de etiquetas de Triple Barrera implementada (TASK-030).**
 **Fase 5: Modelo predictivo Random Forest + Pipeline Real MT5 + Portfolio Loop implementado (TASK-029, TASK-031).**
 **Fase 6: Criterio de Kelly activado en Paper Trading (`USE_KELLY_SIZER = True`) (TASK-032).**
+**Fase 7: Motor de Walk-Forward Analysis automatizado implementado (TASK-033).**
