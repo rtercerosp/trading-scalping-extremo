@@ -45,5 +45,14 @@
 - **Validado en producción**: 9/9 símbolos exitosos, 43,767 muestras totales, modelos guardados en `models/portfolio_<timestamp>/`
 - Distribución target típica: SL ~53%, Time ~5%, PT ~42% (clase 0 underrepresented esperada)
 
+**TASK-032: Activación del Criterio de Kelly en Paper Trading - COMPLETADO**
+- `config.py`: `USE_KELLY_SIZER = True` (activado)
+- Parámetros Kelly: `KELLY_FRACTION=0.25` (Quarter Kelly), `KELLY_MIN_WIN_RATE=0.35`, `KELLY_MIN_TRADES=30`, `KELLY_VOLATILITY_LOOKBACK=20`
+- `trading_app.py`: Selector condicional ya implementado — instancia `KellyCriterionSizer` cuando `USE_KELLY_SIZER=True`
+- Validación: Kelly calc con WR=55%/R:R=1.5 → 5.43% risk; WR=44.5%/R:R=1.0 → 0% → clamped a 0.25% (MIN)
+- Límites hard: `LEARNING_RISK_PCT_MIN=0.25%`, `LEARNING_RISK_PCT_MAX=2.0%` (desde config.py)
+- Próximo: Paper trading en demo Exness para validación en vivo de eventos de sizing
+
 **Fase 4: Validación estadística de etiquetas de Triple Barrera implementada (TASK-030).**
 **Fase 5: Modelo predictivo Random Forest + Pipeline Real MT5 + Portfolio Loop implementado (TASK-029, TASK-031).**
+**Fase 6: Criterio de Kelly activado en Paper Trading (`USE_KELLY_SIZER = True`) (TASK-032).**
