@@ -17,7 +17,12 @@
 - `docs/TASKS.md` — Registro de tareas completadas, actual (TASK-029), backlog priorizado, reglas SOP
 - `TRADING_JOURNAL.md` — Histórico backtesting V5-V14, métricas por activo, Kelly simulation, circuit breaker events, research log
 
-**TASK-029: Train/Test/Validation Split Implementation - 🔴 BLOQUEADOR CRÍTICO (EN COLA)**
-- Requerido por auditoría 2026-08-17: separación formal temporal Train/Test/Validation
-- Bloquea cualquier modelo ML predictivo válido
-- Próxima tarea a ejecutar tras sincronización
+**TASK-029: Train/Test/Validation Split Implementation - COMPLETADO**
+- Módulo creado: `src/models/rf_classifier.py`
+- Pipeline: StandardScaler + RandomForestClassifier (n_estimators=200, max_depth=8, random_state=42)
+- Split cronológico estricto: 70% Train / 15% Test / 15% Validation (sin data leakage)
+- Validación: classification_report en Test y Validation sets independientes
+- Feature importance: RSI (18%), EMA Ratio (17%), MACD (16%) como top predictores
+- Resuelve bloqueador crítico de auditoría 2026-08-17
+
+**Fase 5: Modelo predictivo Random Forest implementado con validación y preprocesamiento (TASK-029).**
