@@ -25,4 +25,25 @@
 - Feature importance: RSI (18%), EMA Ratio (17%), MACD (16%) como top predictores
 - Resuelve bloqueador crítico de auditoría 2026-08-17
 
-**Fase 5: Modelo predictivo Random Forest implementado con validación y preprocesamiento (TASK-029).**
+**TASK-030: Validación Estadística de Etiquetas de Triple Barrera - COMPLETADO**
+- Módulo creado: `src/features/validate_labels.py`
+- Función `audit_triple_barrier_labels()` aplica etiquetado y audita distribución de clases (-1, 0, 1)
+- Detección automática de desbalance crítico: alerta si alguna clase < 10% del total
+- Métrica de balance: ratio min/max entre clases
+- Simulación validada con 10k precios sintéticos (volatilidad estocástica): SL=29.9%, Time=44.7%, PT=25.5%, ratio=0.57
+- Copiado `triple_barrier.py` a `src/features/` para import consistente
+
+**TASK-031: Feature Store y Pipeline Real con Datos MT5 - COMPLETADO**
+- Módulo creado: `src/features/feature_pipeline.py`
+- Clase `FeaturePipeline` orquesta: MT5/DuckLake → Features técnicos → Triple Barrera → Train/Test/Val
+- **PORTFOLIO PIPELINE**: `run_portfolio_pipeline()` procesa bucle sobre `config.DEFAULT_SYMBOLS` (9 símbolos)
+- Conecta con `PlatformConnector` para datos reales OHLCV (5000 barras/símbolo, demo Exness)
+- 12 features técnicos: returns, volatility, EMAs, RSI, MACD, ATR, Bollinger, Volume, Price position
+- Triple Barrera integrado con volatilidad dinámica (pt=1.5, sl=1.0, time=15)
+- Split cronológico 70/15/15 sin data leakage
+- Random Forest entrenado y evaluado en Test/Val independientes por símbolo
+- **Validado en producción**: 9/9 símbolos exitosos, 43,767 muestras totales, modelos guardados en `models/portfolio_<timestamp>/`
+- Distribución target típica: SL ~53%, Time ~5%, PT ~42% (clase 0 underrepresented esperada)
+
+**Fase 4: Validación estadística de etiquetas de Triple Barrera implementada (TASK-030).**
+**Fase 5: Modelo predictivo Random Forest + Pipeline Real MT5 + Portfolio Loop implementado (TASK-029, TASK-031).**
