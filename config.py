@@ -43,6 +43,13 @@ RISK_MAX_LEVERAGE_FACTOR: int = 4
 # --- 6. CONFIGURACIÓN DEL SIZER DE POSICIÓN ---
 SIZER_DEFAULT_RISK_PCT: float = 0.020
 
+# --- 6a. CONFIGURACIÓN KELLY CRITERION SIZER ---
+USE_KELLY_SIZER: bool = False  # Set True to enable Kelly Criterion dynamic sizing
+KELLY_FRACTION: float = 0.25   # Fraction of full Kelly (0.25 = Quarter Kelly)
+KELLY_MIN_WIN_RATE: float = 0.35  # Minimum win rate to enable Kelly
+KELLY_MIN_TRADES: int = 30        # Minimum trades for statistical validity
+KELLY_VOLATILITY_LOOKBACK: int = 20  # Periods for volatility estimation
+
 # --- 6b. CONFIGURACIÓN DE SCALPING EXTREMO POR ACTIVO ---
 EXTREME_SCALPING_PARAMS: dict[str, dict] = {
     "BTCUSD": {

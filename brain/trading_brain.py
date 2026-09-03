@@ -866,6 +866,40 @@ class TradingBrain:
     def get_adaptive_params(self, symbol: str) -> dict:
         return self._compute_adaptive_params(symbol)
 
+    def get_strategy_metrics(self, symbol: str, strategy: str) -> dict | None:
+        """
+        Retrieve strategy performance metrics for Kelly Criterion calculation.
+
+        Returns:
+            dict with: win_rate, avg_win, avg_loss, total_trades
+            or None if insufficient data
+        """
+        symbol_key = self._symbol_key(symbol)
+        strat_perf = self.strategy_performance.get(symbol_key, {}).get(strategy, {})
+
+        if not strat_perf or strat_perf.get("trades", 0) < 10:
+            return None
+
+        trades = strat_perf.get("trades", 0)
+        wins = strat_perf.get("wins", 0)
+        losses = strat_perf.get("losses", 0)
+        gross_profit = strat_perf.get("gross_profit", 0.0)
+        gross_loss = strat_perf.get("gross_loss", 0.0)
+
+        if wins == 0 or losses == 0:
+            return None
+
+        win_rate = wins / trades
+        avg_win = gross_profit / wins if wins > 0 else 0.0
+        avg_loss = gross_loss / losses if losses > 0 else 0.0
+
+        return {
+            "win_rate": win_rate,
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "total_trades": trades,
+        }
+
     def get_asset_timeframes(self, symbol: str) -> dict:
         symbol_key = self._symbol_key(symbol)
         asset_category = get_asset_category(symbol_key)

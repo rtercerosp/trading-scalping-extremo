@@ -13,6 +13,7 @@ from platform_connector.platform_connector import PlatformConnector
 from portfolio.portfolio import Portfolio
 from position_sizer.position_sizer import PositionSizer
 from position_sizer.properties.position_sizer_properties import RiskPctSizingProps
+from position_sizer.position_sizers.kelly_criterion_sizer import KellyCriterionSizer, KellySizingProps
 from risk_manager.properties.risk_manager_properties import MaxLeverageFactorRiskProps
 from risk_manager.risk_manager import RiskManager
 from signal_generator.properties.signal_generator_properties import SmartMoneySignalProps
@@ -160,15 +161,42 @@ if __name__ == "__main__":
         risk = params.get("risk_pct") if isinstance(params, dict) else None
         return float(risk) if risk is not None else None
 
-    position_sizer: PositionSizer = PositionSizer(
-        events_queue=events_queue,
-        data_provider=data_provider,
-        sizing_properties=RiskPctSizingProps(risk_pct=config.SIZER_DEFAULT_RISK_PCT),
-        connector=connector,
-        get_risk_pct_callback=_get_adaptive_risk_pct,
-        portfolio=portfolio,
-        max_leverage_factor=config.RISK_MAX_LEVERAGE_FACTOR,
-    )
+    def _get_strategy_metrics(symbol: str, strategy: str):
+        """Callback for Kelly sizer to retrieve strategy metrics from TradingBrain."""
+        if trading_brain is None:
+            return None
+        return trading_brain.get_strategy_metrics(symbol, strategy)
+
+    # Choose sizer based on config
+    use_kelly_sizer = getattr(config, "USE_KELLY_SIZER", False)
+
+    if use_kelly_sizer:
+        kelly_props = KellySizingProps(
+            risk_pct=config.SIZER_DEFAULT_RISK_PCT,
+            kelly_fraction=getattr(config, "KELLY_FRACTION", 0.25),
+            min_win_rate=getattr(config, "KELLY_MIN_WIN_RATE", 0.35),
+            min_trades=getattr(config, "KELLY_MIN_TRADES", 30),
+            volatility_lookback=getattr(config, "KELLY_VOLATILITY_LOOKBACK", 20),
+        )
+        position_sizer = KellyCriterionSizer(
+            properties=kelly_props,
+            connector=connector,
+            get_strategy_metrics_callback=_get_strategy_metrics,
+            portfolio=portfolio,
+            max_leverage_factor=config.RISK_MAX_LEVERAGE_FACTOR,
+        )
+        logging.info("Using KellyCriterionSizer for dynamic capital allocation")
+    else:
+        position_sizer: PositionSizer = PositionSizer(
+            events_queue=events_queue,
+            data_provider=data_provider,
+            sizing_properties=RiskPctSizingProps(risk_pct=config.SIZER_DEFAULT_RISK_PCT),
+            connector=connector,
+            get_risk_pct_callback=_get_adaptive_risk_pct,
+            portfolio=portfolio,
+            max_leverage_factor=config.RISK_MAX_LEVERAGE_FACTOR,
+        )
+        logging.info("Using RiskPctPositionSizer (standard)")
 
     risk_manager: RiskManager = RiskManager(
         events_queue=events_queue,
