@@ -11,3 +11,13 @@
 - Integración en `trading_app.py`: selector condicional entre `RiskPctPositionSizer` (default) y `KellyCriterionSizer`
 - Simulación validada: WR=44.50%, Expectancy=-0.0423 → Kelly=0% → clamped a 0.25% (mínimo)
 - Activación: establecer `USE_KELLY_SIZER = True` en config.py o via variable de entorno
+
+**SSOT Files Created (2026-09-03):**
+- `DECISION_LOG.md` — Pila tecnológica, parámetros cuantitativos, reglas Train/Test/Validation, versiones, decisiones arquitectónicas
+- `docs/TASKS.md` — Registro de tareas completadas, actual (TASK-029), backlog priorizado, reglas SOP
+- `TRADING_JOURNAL.md` — Histórico backtesting V5-V14, métricas por activo, Kelly simulation, circuit breaker events, research log
+
+**TASK-029: Train/Test/Validation Split Implementation - 🔴 BLOQUEADOR CRÍTICO (EN COLA)**
+- Requerido por auditoría 2026-08-17: separación formal temporal Train/Test/Validation
+- Bloquea cualquier modelo ML predictivo válido
+- Próxima tarea a ejecutar tras sincronización
