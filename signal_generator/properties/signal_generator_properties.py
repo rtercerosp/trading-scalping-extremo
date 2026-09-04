@@ -68,8 +68,12 @@ class BollingerBandsProps(BaseSignalProps):
     bb_period: int = 20
     bb_std_dev: float = 2.0
     squeeze_threshold_pct: float = 0.05
+    squeeze_lookback: int = 20
     walk_basis_points: int = 50
+    walk_min_candles: int = 3
     reversal_exit_std: float = 0.5
     atr_period: int = 14
     sl_atr_mult: float = 1.2
     tp_atr_mult: float = 2.0
+    min_squeeze_duration: int = 5
+    volatility_regime_threshold: float = 0.10
