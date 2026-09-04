@@ -65,7 +65,25 @@
 - Rolling accuracy tracking (ventana 100) para detectar decay de modelo
 - Prepara re-entrenamiento automático mensual/trimestral en producción
 
+**TASK-034: Implementación de Model Registry con DuckDB - COMPLETADO**
+- Módulo creado: `src/models/model_registry.py`
+- Clase `ModelRegistry` con backend DuckDB (`data/ducklake.db`) + artefactos joblib en `models/registry/`
+- Tabla `model_registry` con índices: model_id (PK), symbol, training_date, oos_accuracy, artifact_path
+- `register_model()`: Guarda modelo (joblib) + metadata (UUID, símbolo, accuracy, hiperparámetros, métricas)
+- `get_best_model(symbol)`: SQL `ORDER BY oos_accuracy DESC LIMIT 1` → carga modelo + metadata
+- `get_latest_model(symbol)`: Recupera modelo más reciente por fecha
+- `list_models(symbol, limit)`: Lista paginada de modelos
+- `delete_model(model_id)`: Elimina registro BD + artefacto disco
+- Validación: Modelo RF sintético registrado (Acc=97%), recuperado y verificado (predicciones idénticas)
+- Integración lista para: selección automática del mejor modelo por símbolo en producción
+
 **Fase 4: Validación estadística de etiquetas de Triple Barrera implementada (TASK-030).**
 **Fase 5: Modelo predictivo Random Forest + Pipeline Real MT5 + Portfolio Loop implementado (TASK-029, TASK-031).**
 **Fase 6: Criterio de Kelly activado en Paper Trading (`USE_KELLY_SIZER = True`) (TASK-032).**
-**Fase 7: Motor de Walk-Forward Analysis automatizado implementado (TASK-033).**
+**Fase 7: Motor de Walk-Forward Analysis + Model Registry (DuckDB) implementado (TASK-033, TASK-034).**
+**Fase 7: Motor de estrés Monte Carlo y cálculo de riesgo de cola (VaR/CVaR) implementado (TASK-035).**
+**Fase 8: Dashboard de monitoreo en tiempo real implementado con Streamlit (TASK-036).**
+**Fase 9: Orquestador MLOps de re-entrenamiento continuo implementado (TASK-037).**
+
+**Fase 10: Integración de telemetría real, SR dinámico, bandas de Bollinger y VaR proactivo implementada (TASK-038).**
+**Fase 11: Inyección de dependencias completada. Sistema ensamblado para producción (TASK-039).**

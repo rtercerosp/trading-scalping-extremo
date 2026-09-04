@@ -10,12 +10,28 @@ from notifications.notifications import NotificationService
 from events.events import SizingEvent, OrderEvent
 from utils.utils import Utils
 from queue import Queue
+from typing import List, Optional
+
 
 class RiskManager(IRiskManager):
+    """
+    Risk Manager with support for chaining multiple risk managers.
+    The first manager in the chain (e.g., VaRRiskManager) acts as a proactive barrier
+    that can adjust risk_pct_override before passing to subsequent managers.
+    """
     
-    def __init__(self, events_queue: Queue, data_provider: DataProvider, portfolio: Portfolio, risk_properties: BaseRiskProps, notification_service: NotificationService, connector: PlatformConnector):
+    def __init__(
+        self, 
+        events_queue: Queue, 
+        data_provider: DataProvider, 
+        portfolio: Portfolio, 
+        risk_properties: BaseRiskProps, 
+        notification_service: NotificationService, 
+        connector: PlatformConnector,
+        additional_risk_managers: Optional[List[IRiskManager]] = None
+    ):
         """
-        Initializes a RiskManager object.
+        Initializes a RiskManager object with optional chained risk managers.
 
         Args:
             events_queue (Queue): The queue for receiving events.
@@ -24,16 +40,20 @@ class RiskManager(IRiskManager):
             risk_properties (BaseRiskProps): The risk properties object for configuring risk management.
             notification_service (NotificationService): The notification service object.
             connector (PlatformConnector): The platform connector instance.
-
-        Returns:
-            None
+            additional_risk_managers (List[IRiskManager], optional): Additional risk managers to chain.
+                The first in the list runs first as a proactive barrier.
         """
         self.events_queue = events_queue
         self.data_provider = data_provider
         self.portfolio = portfolio
         self.notification_service = notification_service
         self.connector = connector
-        self.risk_management_method = self._get_risk_management_method(risk_properties, self.notification_service, self.connector)
+        
+        # Primary risk manager (existing logic)
+        self.primary_risk_manager = self._get_risk_management_method(risk_properties, self.notification_service, self.connector)
+        
+        # Chained risk managers (run before primary)
+        self.chained_risk_managers: List[IRiskManager] = additional_risk_managers or []
     
     def _get_risk_management_method(self, risk_props: BaseRiskProps, notification_service: NotificationService, connector: PlatformConnector) -> IRiskManager:
         """
@@ -52,6 +72,10 @@ class RiskManager(IRiskManager):
             return MaxLeverageFactorRiskManager(risk_props, notification_service, connector)
         else:
             raise Exception(f"ERROR: Método de Risk Mgmt desconocido: {risk_props}")
+
+    def add_chained_risk_manager(self, risk_manager: IRiskManager) -> None:
+        """Add a risk manager to the chain (runs before primary)."""
+        self.chained_risk_managers.append(risk_manager)
 
     def _compute_current_value_of_positions_in_account_currency(self) -> float:
         """
@@ -145,7 +169,11 @@ class RiskManager(IRiskManager):
     
     def assess_order(self, sizing_event: SizingEvent) -> None:
         """
-        Assess the order based on the risk management method and create an order event if the new volume is greater than 0.
+        Assess the order through the chain of risk managers, then the primary risk manager.
+        
+        Chained risk managers (e.g., VaRRiskManager) run first as proactive barriers
+        that can adjust risk_pct_override on the SizingEvent before the primary
+        risk manager (MaxLeverageFactorRiskManager) calculates the final volume.
 
         Args:
             sizing_event (SizingEvent): The sizing event containing information about the order.
@@ -153,18 +181,28 @@ class RiskManager(IRiskManager):
         Returns:
             None
         """
+        # Run chained risk managers first (proactive barriers like VaR)
+        for rm in self.chained_risk_managers:
+            try:
+                rm.assess_order(sizing_event)
+            except Exception as e:
+                print(f"{Utils.dateprint()} - RISK MANAGER: Error en risk manager encadenado {rm.__class__.__name__}: {e}")
         
-        # Obtenemos el valor de todas las posiciones abiertas por la estrategia en la divisa de la cuenta
-        current_position_value = self._compute_current_value_of_positions_in_account_currency()
+        # Then run primary risk manager (leverage/position limits)
+        try:
+            # Obtenemos el valor de todas las posiciones abiertas por la estrategia en la divisa de la cuenta
+            current_position_value = self._compute_current_value_of_positions_in_account_currency()
 
-        # Obtenemos el valor que tendría la nueva posición, también en la divisa de la cuenta
-        position_type = 0 if sizing_event.signal == "BUY" else 1 # 0 for BUY, 1 for SELL
-        new_position_value = self._compute_value_of_position_in_account_currency(sizing_event.symbol, sizing_event.volume, position_type)
-        
-        # Obtenemos el nuevo volumen de la operacion que queremos ejecutar después de pasar por el risk manager
-        new_volume = self.risk_management_method.assess_order(sizing_event, current_position_value, new_position_value)
+            # Obtenemos el valor que tendría la nueva posición, también en la divisa de la cuenta
+            position_type = 0 if sizing_event.signal == "BUY" else 1 # 0 for BUY, 1 for SELL
+            new_position_value = self._compute_value_of_position_in_account_currency(sizing_event.symbol, sizing_event.volume, position_type)
+            
+            # Obtenemos el nuevo volumen de la operacion que queremos ejecutar después de pasar por el risk manager
+            new_volume = self.primary_risk_manager.assess_order(sizing_event, current_position_value, new_position_value)
 
-        # Evaluamos el nuevo volumen
-        if new_volume > 0.0:
-            # colocar el order event a la cola de eventos
-            self._create_and_put_order_event(sizing_event, new_volume)
+            # Evaluamos el nuevo volumen
+            if new_volume > 0.0:
+                # colocar el order event a la cola de eventos
+                self._create_and_put_order_event(sizing_event, new_volume)
+        except Exception as e:
+            print(f"{Utils.dateprint()} - RISK MANAGER: Error en risk manager primario: {e}")

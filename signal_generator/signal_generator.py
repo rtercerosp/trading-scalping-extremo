@@ -56,10 +56,6 @@ try:
 except ModuleNotFoundError as exc:
     SignalGoldMomentumReversal = None
     logger.warning("SIGNAL GENERATOR: estrategia opcional SignalGoldMomentumReversal deshabilitada: %s", exc)
-from utils.utils import Utils
-from utils.symbol_utils import CRYPTO_SYMBOLS, FOREX_SYMBOLS, GOLD_SYMBOLS, INDEX_SYMBOLS, COMMODITY_SYMBOLS, get_asset_category, normalize_symbol
-from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
-import config
 
 ASSET_TIMEFRAME_CONFIG = {
     "crypto": {"entry": "15min", "trend": "30min", "rsi": "15min"},
@@ -88,6 +84,7 @@ class SignalGenerator(ISignalGenerator):
         signal_properties: BaseSignalProps,
         connector: PlatformConnector,
         trading_brain=None,
+        sr_analyzer: DynamicSRAnalyzer | None = None,
     ):
         self.events_queue = events_queue
         self.data_provider = data_provider
@@ -100,7 +97,9 @@ class SignalGenerator(ISignalGenerator):
         self.asset_strategies: dict[str, list[ISignalGenerator]] = {}
         self.asset_category_map: dict[str, str] = {}
         self._recent_signal_cache: dict[tuple[str, str, str], datetime] = {}
-        self.sr_analyzer = DynamicSRAnalyzer(lookback=50, peak_distance=3, tolerance_pct=0.0015)
+        
+        # Use injected DynamicSRAnalyzer or create default
+        self.sr_analyzer = sr_analyzer or DynamicSRAnalyzer(lookback=50, peak_distance=3, prominence_pct=0.0015)
 
         smart_money_props = signal_properties if isinstance(signal_properties, SmartMoneySignalProps) else SmartMoneySignalProps(
             entry_timeframe="5min",
@@ -685,11 +684,156 @@ class SignalGenerator(ISignalGenerator):
             if config.STRATEGY_VERSION == "V10_ZERO_LOSS_SCALPING":
                 enriched_event = self._apply_compounding_bonus(data_event.symbol, enriched_event)
             
+            # Ajustar SL/TP dinámicamente usando niveles de soporte/resistencia
+            enriched_event = self._adjust_sl_tp_with_sr(data_event.symbol, enriched_event)
+            
             logging.info("SIGNAL GENERATOR: Señal %s final %s calidad=%.1f justificación=%s", 
                          enriched_event.signal, enriched_event.symbol, enriched_event.quality_score, enriched_event.justification)
             self.events_queue.put(enriched_event)
         else:
             logging.info("SIGNAL GENERATOR: Sin consenso para %s (buy=%d sell=%d)", data_event.symbol, len(buy_signals), len(sell_signals))
+
+    def _adjust_sl_tp_with_sr(self, symbol: str, signal_event) -> object:
+        """
+        Adjust Stop Loss and Take Profit levels based on Dynamic S/R levels.
+        
+        For BUY signals:
+        - SL placed just below nearest support level (with buffer)
+        - TP placed at nearest resistance level (with buffer)
+        
+        For SELL signals:
+        - SL placed just above nearest resistance level (with buffer)
+        - TP placed at nearest support level (with buffer)
+        
+        Falls back to original SL/TP if no suitable S/R levels found.
+        """
+        try:
+            # Get current market data for S/R analysis
+            bars = self.data_provider.get_latest_closed_bars(symbol, "5min", 100)
+            if bars is None or bars.empty or len(bars) < 20:
+                return signal_event
+            
+            # Analyze S/R levels
+            sr_data = self.sr_analyzer.analyze(bars)
+            current_price = sr_data.get("current_price")
+            support_levels = sr_data.get("support_levels", [])
+            resistance_levels = sr_data.get("resistance_levels", [])
+            
+            if current_price is None:
+                return signal_event
+            
+            symbol_info = self.connector.get_symbol_info(symbol)
+            if symbol_info is None:
+                return signal_event
+            
+            point = getattr(symbol_info, "point", 0.0001) or 0.0001
+            min_stop_points = symbol_info.trade_stops_level + 5
+            min_distance = min_stop_points * point * 1.5  # Buffer
+            
+            signal_type = getattr(signal_event, "signal", "BUY")
+            original_sl = getattr(signal_event, "sl", 0.0)
+            original_tp = getattr(signal_event, "tp", 0.0)
+            
+            if signal_type == "BUY":
+                # Find nearest support below current price for SL
+                nearest_support = None
+                for level in support_levels:
+                    if level["price"] < current_price:
+                        nearest_support = level["price"]
+                        break
+                
+                # Find nearest resistance above current price for TP
+                nearest_resistance = None
+                for level in resistance_levels:
+                    if level["price"] > current_price:
+                        nearest_resistance = level["price"]
+                        break
+                
+                # Adjust SL: just below nearest support
+                if nearest_support is not None:
+                    new_sl = nearest_support - min_distance
+                    # Only adjust if new SL is tighter (closer to price) than original
+                    if original_sl > 0 and new_sl > original_sl and new_sl < current_price:
+                        signal_event.sl = new_sl
+                        signal_event.analysis_context["sl_source"] = "dynamic_sr_support"
+                        signal_event.analysis_context["sl_level"] = nearest_support
+                        logger.debug("SIGNAL GENERATOR: SL ajustado a soporte dinámico %.5f para %s", new_sl, symbol)
+                    elif original_sl <= 0:
+                        signal_event.sl = new_sl
+                        signal_event.analysis_context["sl_source"] = "dynamic_sr_support"
+                        signal_event.analysis_context["sl_level"] = nearest_support
+                
+                # Adjust TP: at nearest resistance (or slightly before)
+                if nearest_resistance is not None:
+                    new_tp = nearest_resistance - min_distance
+                    # Only adjust if new TP is reasonable (not too close, not too far)
+                    if new_tp > current_price + min_distance * 2 and new_tp < current_price * 1.05:  # Max 5% away
+                        signal_event.tp = new_tp
+                        signal_event.analysis_context["tp_source"] = "dynamic_sr_resistance"
+                        signal_event.analysis_context["tp_level"] = nearest_resistance
+                        logger.debug("SIGNAL GENERATOR: TP ajustado a resistencia dinámica %.5f para %s", new_tp, symbol)
+            
+            elif signal_type == "SELL":
+                # Find nearest resistance above current price for SL
+                nearest_resistance = None
+                for level in resistance_levels:
+                    if level["price"] > current_price:
+                        nearest_resistance = level["price"]
+                        break
+                
+                # Find nearest support below current price for TP
+                nearest_support = None
+                for level in support_levels:
+                    if level["price"] < current_price:
+                        nearest_support = level["price"]
+                        break
+                
+                # Adjust SL: just above nearest resistance
+                if nearest_resistance is not None:
+                    new_sl = nearest_resistance + min_distance
+                    # Only adjust if new SL is tighter than original
+                    if original_sl > 0 and new_sl < original_sl and new_sl > current_price:
+                        signal_event.sl = new_sl
+                        signal_event.analysis_context["sl_source"] = "dynamic_sr_resistance"
+                        signal_event.analysis_context["sl_level"] = nearest_resistance
+                        logger.debug("SIGNAL GENERATOR: SL ajustado a resistencia dinámica %.5f para %s", new_sl, symbol)
+                    elif original_sl <= 0:
+                        signal_event.sl = new_sl
+                        signal_event.analysis_context["sl_source"] = "dynamic_sr_resistance"
+                        signal_event.analysis_context["sl_level"] = nearest_resistance
+                
+                # Adjust TP: at nearest support (or slightly before)
+                if nearest_support is not None:
+                    new_tp = nearest_support + min_distance
+                    # Only adjust if new TP is reasonable
+                    if new_tp < current_price - min_distance * 2 and new_tp > current_price * 0.95:  # Max 5% away
+                        signal_event.tp = new_tp
+                        signal_event.analysis_context["tp_source"] = "dynamic_sr_support"
+                        signal_event.analysis_context["tp_level"] = nearest_support
+                        logger.debug("SIGNAL GENERATOR: TP ajustado a soporte dinámico %.5f para %s", new_tp, symbol)
+            
+            # Ensure SL/TP are valid
+            if signal_event.sl <= 0 or signal_event.tp <= 0:
+                logger.warning("SIGNAL GENERATOR: SL/TP inválidos tras ajuste S/R para %s, usando originales", symbol)
+                signal_event.sl = original_sl
+                signal_event.tp = original_tp
+            
+            # Log adjustment summary
+            if signal_event.analysis_context.get("sl_source") or signal_event.analysis_context.get("tp_source"):
+                logger.info(
+                    "SIGNAL GENERATOR: SL/TP ajustado por S/R dinámico para %s: "
+                    "SL=%.5f (%s), TP=%.5f (%s)",
+                    symbol,
+                    signal_event.sl,
+                    signal_event.analysis_context.get("sl_source", "original"),
+                    signal_event.tp,
+                    signal_event.analysis_context.get("tp_source", "original"),
+                )
+            
+        except Exception as e:
+            logger.debug("SIGNAL GENERATOR: Error ajustando SL/TP con S/R dinámico para %s: %s", symbol, e, exc_info=True)
+        
+        return signal_event
 
     def _apply_compounding_bonus(self, symbol: str, signal_event) -> object:
         try:

@@ -16,11 +16,13 @@ from position_sizer.properties.position_sizer_properties import RiskPctSizingPro
 from position_sizer.position_sizers.kelly_criterion_sizer import KellyCriterionSizer, KellySizingProps
 from risk_manager.properties.risk_manager_properties import MaxLeverageFactorRiskProps
 from risk_manager.risk_manager import RiskManager
+from src.risk_manager.var_risk_manager import VaRRiskManager, VaRRiskProps
 from signal_generator.properties.signal_generator_properties import SmartMoneySignalProps
 from signal_generator.signal_generator import SignalGenerator
 from trading_director.trading_director import TradingDirector
 from brain.trading_brain import TradingBrain
 from news.news_protection import NewsProtection
+from utils.dynamic_sr_analyzer import DynamicSRAnalyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -140,6 +142,15 @@ if __name__ == "__main__":
         trading_brain=trading_brain,
     )
 
+    # --- Instanciar DynamicSRAnalyzer para inyección en SignalGenerator ---
+    sr_analyzer: DynamicSRAnalyzer = DynamicSRAnalyzer(
+        lookback=50,
+        peak_distance=3,
+        prominence_pct=0.0015,
+        timeframe=config.ENTRY_TIMEFRAME,
+        min_touches=2,
+    )
+
     signal_generator: SignalGenerator = SignalGenerator(
         events_queue=events_queue,
         data_provider=data_provider,
@@ -148,6 +159,7 @@ if __name__ == "__main__":
         signal_properties=strategy_props,
         connector=connector,
         trading_brain=trading_brain,
+        sr_analyzer=sr_analyzer,
     )
 
     # Inyección tardía para romper la dependencia circular
@@ -184,6 +196,8 @@ if __name__ == "__main__":
             get_strategy_metrics_callback=_get_strategy_metrics,
             portfolio=portfolio,
             max_leverage_factor=config.RISK_MAX_LEVERAGE_FACTOR,
+            data_provider=data_provider,
+            events_queue=events_queue,
         )
         logging.info("Using KellyCriterionSizer for dynamic capital allocation")
     else:
@@ -198,6 +212,34 @@ if __name__ == "__main__":
         )
         logging.info("Using RiskPctPositionSizer (standard)")
 
+    # --- Instanciar VaRRiskManager como barrera proactiva antes del risk manager principal ---
+    var_risk_props = VaRRiskProps(
+        var_confidence_levels=[0.95, 0.99],
+        lookback_periods=252,
+        correlation_half_life=60,
+        max_portfolio_var_pct=0.05,  # 5% max portfolio VaR at 95%
+        max_correlated_exposure_pct=0.15,  # 15% max correlated exposure
+        risk_reduction_factor=0.5,  # Reduce risk_pct by 50% when threshold breached
+        min_risk_pct=config.LEARNING_RISK_PCT_MIN,
+        max_risk_pct=config.LEARNING_RISK_PCT_MAX,
+    )
+    var_risk_manager: VaRRiskManager = VaRRiskManager(
+        events_queue=events_queue,
+        data_provider=data_provider,
+        portfolio=portfolio,
+        risk_properties=var_risk_props,
+        notification_service=notifications,
+        connector=connector,
+        var_confidence_levels=[0.95, 0.99],
+        lookback_periods=252,
+        correlation_half_life=60,
+        max_portfolio_var_pct=0.05,
+        max_correlated_exposure_pct=0.15,
+        risk_reduction_factor=0.5,
+        min_risk_pct=config.LEARNING_RISK_PCT_MIN,
+        max_risk_pct=config.LEARNING_RISK_PCT_MAX,
+    )
+
     risk_manager: RiskManager = RiskManager(
         events_queue=events_queue,
         data_provider=data_provider,
@@ -205,6 +247,7 @@ if __name__ == "__main__":
         risk_properties=MaxLeverageFactorRiskProps(max_leverage_factor=config.RISK_MAX_LEVERAGE_FACTOR),
         notification_service=notifications,
         connector=connector,
+        additional_risk_managers=[var_risk_manager],  # VaR runs first as proactive barrier
     )
 
     logging.info(f"Running strategy version: {config.STRATEGY_VERSION}")
