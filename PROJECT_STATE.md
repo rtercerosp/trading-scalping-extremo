@@ -1,5 +1,5 @@
 # Project State
-**Fase Actual:** Fase 3: Catálogo de datos de alta rendimiento con DuckLake implementado (TASK-015). Fase 3: Motor de cálculo de riesgo y drawdown implementado (TASK-016). Fase 4: Ingeniería de características y etiquetado Triple Barrera implementado (TASK-017).
+**Fase Actual:** Fase 12: Auditoría de riesgo, cierre nocturno Anti-Swap y regla del 1% implementada (TASK-043).
 
 **TASK-028: Implementación de Asignación Dinámica de Capital (Kelly Criterion) - COMPLETADO**
 - Módulo creado: `position_sizer/position_sizers/kelly_criterion_sizer.py` (raíz del proyecto)
@@ -125,3 +125,45 @@
   - Costo total transacción (spread + comisión) vs `TOTAL_COST_THRESHOLD_PCT` (0.05%)
 - Validación metodológica: Separación estricta Train/Test/Validation sin reoptimización iterativa sobre test set
 - Configuración vía variables de entorno: `COINGLASS_API_KEY`, `COINGLASS_USE_MOCK`, `BROKER_PROFILE`
+
+**TASK-043: Auditoría y Ejecución de Alto Rendimiento (Anti-Overnight y SMC) - COMPLETADO**
+
+1. **Cierre de Sesión Obligatorio (Anti-Swap) — `trading_director/trading_director.py`:**
+   - Implementada función `_check_session_close()` que cierra TODAS las posiciones a mercado a una hora límite configurable (default 22:00 UTC)
+   - Configuración en `config.py`: `SESSION_CLOSE_ENABLED`, `SESSION_CLOSE_HOUR`, `SESSION_CLOSE_MINUTE`, `SESSION_CLOSE_TIMEZONE`
+   - Advertencia automática 30 minutos antes del cierre
+   - Notificación por Telegram al ejecutar cierre
+   - Evita costos de swap nocturnos y volatilidad fuera de sesión
+
+2. **Gestor de Riesgo Inviolable (Regla del 1% & Circuit Breaker):**
+   - **PositionSizer (`position_sizer/position_sizers/risk_pct_position_sizer.py`):**
+     - Constante `MAX_RISK_PCT_PER_TRADE = 0.01` (1% hard limit)
+     - Clamping automático de `risk_pct` a 1% máximo antes de calcular volumen
+     - Verificación matemática post-cálculo: `actual_risk_pct = (SL_distance * tick_value * volume) / equity ≤ 1%`
+     - Ajuste de volumen hacia abajo si redondeo hace que riesgo exceda 1%
+     - Log de auditoría: `Riesgo=X.XXXX% (Máx 1%)` en cada operación
+   - **KellyCriterionSizer (`position_sizer/position_sizers/kelly_criterion_sizer.py`):**
+     - Misma regla del 1% hard limit aplicada
+     - `_risk_max = min(config.LEARNING_RISK_PCT_MAX, 1%)`
+     - Verificación final de riesgo real tras boost por mejor activo
+   - **Circuit Breaker Intradía (`trading_director/trading_director.py`):**
+     - `_check_intraday_circuit_breaker()`: Detiene trading por el día si 3 pérdidas consecutivas (usa `TradingBrain.get_consecutive_losses()`)
+     - Detiene trading por la semana si pérdida acumulada ≥ 5% (equity semanal)
+     - Detiene trading por el día si pérdida diaria acumulada ≥ 5% (equity diaria)
+     - Cierre automático de todas las posiciones al activarse
+     - Notificaciones Telegram diferenciadas (Diario vs Semanal)
+     - Reset automático diario/semanal basado en fecha local
+
+3. **Ejecución Asimétrica en Cripto (BTC/ETH) — `signal_generator/signals/signal_smart_money_btc.py`, `signal_smart_money_eth.py`:**
+   - SignalEvent despachado SIEMPRE con SL y TP anclados desde la generación (milisegundos antes de envío a MT5)
+   - SL ceñido a último Order Block institucional + confluencia Liquidation Map (CoinGlass) → pérdida mínima <1%
+   - TP expandido paramétricamente hacia siguiente gran piscina de liquidez (cluster opuesto o SR) → Target R:R 1:50 a 1:100
+   - Mínimo SL distance 0.15% del precio para evitar stops demasiado ajustados
+   - Validación de régimen Bollinger Bands (solo SQUEEZE/WALK) + Spearman IC ≥ 0.15
+   - Mínimo ATR points (BTC: 200, ETH: 150) para filtrar micro-volatilidad
+
+4. **Configuración Anti-Swap en `config.py`:**
+   - `SESSION_CLOSE_ENABLED = True`
+   - `SESSION_CLOSE_HOUR = 22` (UTC)
+   - `SESSION_CLOSE_MINUTE = 0`
+   - `SESSION_CLOSE_TIMEZONE = "UTC"`

@@ -4,11 +4,12 @@ import logging
 import sys
 from pathlib import Path
 from typing import Optional
+from queue import Queue
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import config
-from events.events import SignalEvent
+from events.events import SignalEvent, SizingEvent
 from data_provider.data_provider import DataProvider
 from platform_connector.platform_connector import PlatformConnector
 from position_sizer.interfaces.position_sizer_interface import IPositionSizer
@@ -48,7 +49,11 @@ class KellyCriterionSizer(IPositionSizer):
     - Current volatility regime
     
     Output is constrained by config.LEARNING_RISK_PCT_MIN and config.LEARNING_RISK_PCT_MAX.
+    ENFORCES 1% MAX RISK RULE: Never risks more than 1% of equity per trade.
     """
+
+    # Regla del 1% inviolable
+    MAX_RISK_PCT_PER_TRADE = 0.01  # 1%
 
     def __init__(
         self,
@@ -56,9 +61,11 @@ class KellyCriterionSizer(IPositionSizer):
         connector: PlatformConnector,
         get_strategy_metrics_callback=None,
         portfolio=None,
-        max_leverage_factor=None
+        max_leverage_factor=None,
+        data_provider: Optional[DataProvider] = None,
+        events_queue: Optional[Queue] = None
     ):
-        self.base_risk_pct = properties.risk_pct
+        self.base_risk_pct = min(properties.risk_pct, self.MAX_RISK_PCT_PER_TRADE)
         self.kelly_fraction = properties.kelly_fraction
         self.min_win_rate = properties.min_win_rate
         self.min_trades = properties.min_trades
@@ -67,9 +74,11 @@ class KellyCriterionSizer(IPositionSizer):
         self.get_strategy_metrics_callback = get_strategy_metrics_callback
         self.portfolio = portfolio
         self.max_leverage_factor = max_leverage_factor or getattr(config, "RISK_MAX_LEVERAGE_FACTOR", None)
+        self.data_provider = data_provider
+        self.events_queue = events_queue
 
         self._risk_min = config.LEARNING_RISK_PCT_MIN
-        self._risk_max = config.LEARNING_RISK_PCT_MAX
+        self._risk_max = min(config.LEARNING_RISK_PCT_MAX, self.MAX_RISK_PCT_PER_TRADE)
 
     def _calculate_kelly_fraction(
         self,
@@ -131,9 +140,9 @@ class KellyCriterionSizer(IPositionSizer):
         except Exception:
             return 0.01
 
-    def size_signal(self, signal_event: SignalEvent, data_provider: DataProvider) -> float:
+    def size_signal_with_provider(self, signal_event: SignalEvent, data_provider: DataProvider) -> float:
         """
-        Calculate position size using Kelly Criterion.
+        Core Kelly sizing logic - calculates volume for a signal.
 
         Args:
             signal_event: Signal with symbol, direction, SL, TP
@@ -173,6 +182,11 @@ class KellyCriterionSizer(IPositionSizer):
         if boost_multiplier > 1.0:
             risk_pct *= boost_multiplier
             print(f"{Utils.dateprint()} - BOOST: {symbol} TOP performer - riesgo aumentado x{boost_multiplier:.1f} a {risk_pct:.2%}")
+
+        # REGLA DEL 1% INVIOLABLE: Clampear risk_pct a máximo 1%
+        if risk_pct > self.MAX_RISK_PCT_PER_TRADE:
+            print(f"{Utils.dateprint()} - KELLY SIZER: ⚠️ risk_pct {risk_pct:.4%} excede límite 1%. Clampeando a {self.MAX_RISK_PCT_PER_TRADE:.2%}")
+            risk_pct = self.MAX_RISK_PCT_PER_TRADE
 
         risk_pct = max(self._risk_min, min(self._risk_max, risk_pct))
 
@@ -273,11 +287,61 @@ class KellyCriterionSizer(IPositionSizer):
                 volume = round(volume * boost_multiplier / volume_step) * volume_step
                 print(f"{Utils.dateprint()} - BOOST: {symbol} TOP performer - volumen aumentado x{boost_multiplier:.1f} a {volume:.4f} lotes")
 
+            # VERIFICACIÓN FINAL: Confirmar riesgo ≤ 1%
+            price_distance_in_integer_ticksizes = int(price_distance_in_ticks)
+            actual_risk_pct = (price_distance_in_integer_ticksizes * tick_value_account_ccy * volume) / equity if equity > 0 else 0
+            if actual_risk_pct > self.MAX_RISK_PCT_PER_TRADE * 1.001:
+                print(f"{Utils.dateprint()} - KELLY SIZER: ⚠️ Riesgo real {actual_risk_pct:.4%} > 1%. Ajustando volumen...")
+                volume = (equity * self.MAX_RISK_PCT_PER_TRADE) / (price_distance_in_integer_ticksizes * tick_value_account_ccy)
+                volume = round(volume / volume_step) * volume_step
+            
+            final_risk_pct = (price_distance_in_integer_ticksizes * tick_value_account_ccy * volume) / equity if equity > 0 else 0
+            print(f"{Utils.dateprint()} - KELLY SIZER: {symbol} Volumen={volume:.4f} lotes | Riesgo={final_risk_pct:.4%} (Máx 1%) | Kelly Risk={risk_pct:.4%} | Equity={equity:.2f}")
+
             return volume
 
         except Exception as e:
             print(f"{Utils.dateprint()} - ERROR (KellyCriterionSizer): {e}")
             return 0.0
+
+    def size_signal(self, signal_event: SignalEvent) -> None:
+        """
+        Manager-compatible interface expected by TradingDirector.
+        Calculates volume and enqueues SizingEvent to events_queue.
+        """
+        if self.data_provider is None:
+            print(f"{Utils.dateprint()} - ERROR (KellyCriterionSizer): No data_provider set for manager interface")
+            return
+
+        if self.events_queue is None:
+            print(f"{Utils.dateprint()} - ERROR (KellyCriterionSizer): No events_queue set for manager interface")
+            return
+
+        # Calculate volume using the core logic with stored data_provider
+        volume = self.size_signal_with_provider(signal_event, self.data_provider)
+
+        if volume > 0.0:
+            sizing_event = SizingEvent(
+                symbol=signal_event.symbol,
+                signal=signal_event.signal,
+                target_order=signal_event.target_order,
+                target_price=signal_event.target_price,
+                magic_number=signal_event.magic_number,
+                sl=signal_event.sl,
+                tp=signal_event.tp,
+                tp1=signal_event.tp1,
+                tp2=signal_event.tp2,
+                volume=volume,
+                strategy_name=signal_event.strategy_name,
+                primary_strategy_name=signal_event.primary_strategy_name,
+                asset_category=signal_event.asset_category,
+                market_regime=signal_event.market_regime,
+                analysis_context=signal_event.analysis_context,
+                risk_pct_override=signal_event.risk_pct_override,
+                quality_score=signal_event.quality_score,
+                justification=signal_event.justification,
+            )
+            self.events_queue.put(sizing_event)
 
 
 def calculate_kelly_fraction(

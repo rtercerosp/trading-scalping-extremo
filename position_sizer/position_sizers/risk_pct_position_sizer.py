@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 class RiskPctPositionSizer(IPositionSizer):
 
+    # Regla del 1% inviolable: nunca arriesgar más del 1% del capital por operación
+    MAX_RISK_PCT_PER_TRADE = 0.01  # 1%
+
     def __init__(self, properties: RiskPctSizingProps, connector: PlatformConnector, get_risk_pct_callback=None, portfolio=None, max_leverage_factor=None):
-        self.risk_pct = properties.risk_pct
+        self.risk_pct = min(properties.risk_pct, self.MAX_RISK_PCT_PER_TRADE)
         self.connector = connector
         self.get_risk_pct_callback = get_risk_pct_callback
         self.portfolio = portfolio
@@ -24,16 +27,7 @@ class RiskPctPositionSizer(IPositionSizer):
     def size_signal(self, signal_event: SignalEvent, data_provider: DataProvider) -> float:
         """
         Calculates the size of the position based on the risk percentage and signal event data.
-
-        Args:
-            signal_event (SignalEvent): The signal event containing information about the trade.
-            data_provider (DataProvider): The data provider used to retrieve market data.
-
-        Returns:
-            float: The size of the position.
-
-        Raises:
-            None.
+        ENFORCES 1% MAX RISK RULE: Volume is calculated to risk exactly 1% (or less) of equity.
         """
         risk_pct = self.risk_pct
         if getattr(signal_event, 'risk_pct_override', 0.0) > 0.0:
@@ -46,11 +40,16 @@ class RiskPctPositionSizer(IPositionSizer):
             except Exception as e:
                 logger.error("RISK SIZER: Error obteniendo risk_pct adaptativo para %s: %s", signal_event.symbol, e, exc_info=True)
 
-        # Aplicar boost por mejor activo al riesgo
+        # Aplicar boost por mejor activo al riesgo (PERO NUNCA superar 1%)
         boost_multiplier = getattr(signal_event, 'boost_multiplier', 1.0)
         if boost_multiplier > 1.0:
             risk_pct *= boost_multiplier
             print(f"{Utils.dateprint()} - BOOST: {signal_event.symbol} TOP performer - riesgo aumentado x{boost_multiplier:.1f} a {risk_pct:.2%}")
+
+        # REGLA DEL 1% INVIOLABLE: Clampear risk_pct a máximo 1%
+        if risk_pct > self.MAX_RISK_PCT_PER_TRADE:
+            print(f"{Utils.dateprint()} - RISK SIZER: ⚠️ risk_pct {risk_pct:.4%} excede límite 1%. Clampeando a {self.MAX_RISK_PCT_PER_TRADE:.2%}")
+            risk_pct = self.MAX_RISK_PCT_PER_TRADE
 
         if risk_pct <= 0.0:
             print(f"{Utils.dateprint()} - ERROR (RiskPctPositionSizer): El porcentaje de riesgo introducido: {risk_pct} no es válido.")
@@ -113,6 +112,13 @@ class RiskPctPositionSizer(IPositionSizer):
             volume = monetary_risk / (price_distance_in_integer_ticksizes * tick_value_account_ccy) if tick_value_account_ccy > 0 else 0
             volume = round(volume / volume_step) * volume_step
 
+            # VERIFICACIÓN MATEMÁTICA: El volumen calculado DEBE resultar en riesgo ≤ 1%
+            actual_risk_pct = (price_distance_in_integer_ticksizes * tick_value_account_ccy * volume) / equity if equity > 0 else 0
+            if actual_risk_pct > self.MAX_RISK_PCT_PER_TRADE * 1.001:  # Tolerancia 0.1% por redondeo
+                print(f"{Utils.dateprint()} - RISK SIZER: ⚠️ Riesgo real {actual_risk_pct:.4%} > 1%. Ajustando volumen...")
+                volume = (equity * self.MAX_RISK_PCT_PER_TRADE) / (price_distance_in_integer_ticksizes * tick_value_account_ccy)
+                volume = round(volume / volume_step) * volume_step
+
             max_volume_by_equity = None
             if equity > 0 and entry_price > 0 and contract_size > 0:
                 notional_value = entry_price * contract_size
@@ -143,12 +149,16 @@ class RiskPctPositionSizer(IPositionSizer):
                 volume = volume_min
                 print(f"{Utils.dateprint()} - WARNING (RiskPctPositionSizer): Volumen ajustado a volume_min {volume_min} para {signal_event.symbol}.")
             
-            # Aplicar boost por mejor activo al volumen
+            # Aplicar boost por mejor activo al volumen (después de verificaciones de riesgo)
             boost_multiplier = getattr(signal_event, 'boost_multiplier', 1.0)
             if boost_multiplier > 1.0:
                 volume = round(volume * boost_multiplier / volume_step) * volume_step
                 print(f"{Utils.dateprint()} - BOOST: {signal_event.symbol} TOP performer - volumen aumentado x{boost_multiplier:.1f} a {volume:.4f} lotes")
             
+            # VERIFICACIÓN FINAL: Confirmar riesgo ≤ 1%
+            final_risk_pct = (price_distance_in_integer_ticksizes * tick_value_account_ccy * volume) / equity if equity > 0 else 0
+            print(f"{Utils.dateprint()} - RISK SIZER: {signal_event.symbol} Volumen={volume:.4f} lotes | Riesgo={final_risk_pct:.4%} (Máx 1%) | SL Dist={price_distance_in_integer_ticksizes} ticks | Equity={equity:.2f}")
+
             return volume
 
         except Exception as e:

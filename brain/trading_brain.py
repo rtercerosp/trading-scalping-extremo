@@ -736,6 +736,10 @@ class TradingBrain:
     def is_circuit_breaker_active(self) -> tuple[bool, str | None]:
         return self._circuit_breaker_active, self._circuit_breaker_reason
 
+    def get_consecutive_losses(self) -> int:
+        """Retorna el número de pérdidas consecutivas globales para circuit breaker externo."""
+        return self._consecutive_losses
+
     def reset_daily_circuit_breaker(self) -> None:
         self._circuit_breaker_active = False
         self._circuit_breaker_reason = None

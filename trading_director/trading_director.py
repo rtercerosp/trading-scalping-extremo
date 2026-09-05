@@ -14,7 +14,7 @@ from typing import Dict, Callable
 import queue
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import MetaTrader5 as mt5
 import pandas as pd
 import config
@@ -53,6 +53,23 @@ class TradingDirector():
         self._last_data_event_ts: float = 0.0
         self._breakeven_check_interval: float = 1.0
 
+        # === ANTI-SWAP / SESSION CLOSE CONFIGURATION ===
+        self._session_close_enabled: bool = getattr(config, "SESSION_CLOSE_ENABLED", True)
+        self._session_close_hour: int = getattr(config, "SESSION_CLOSE_HOUR", 22)  # 22:00 UTC default
+        self._session_close_minute: int = getattr(config, "SESSION_CLOSE_MINUTE", 0)
+        self._session_close_timezone: str = getattr(config, "SESSION_CLOSE_TIMEZONE", "UTC")
+        self._last_session_close_date = None
+        
+        # === INTRADAY CIRCUIT BREAKER ===
+        self._daily_consecutive_losses: int = 0
+        self._daily_cumulative_loss_pct: float = 0.0
+        self._daily_start_equity: float = 0.0
+        self._circuit_breaker_daily_active: bool = False
+        self._circuit_breaker_weekly_active: bool = False
+        self._week_start_date = None
+        self._weekly_cumulative_loss_pct: float = 0.0
+        self._weekly_start_equity: float = 0.0
+
         self.event_handler: Dict[str, Callable] = {
             "DATA": self._handle_data_event,
             "SIGNAL": self._handle_signal_event,
@@ -76,6 +93,144 @@ class TradingDirector():
         if getattr(self, '_last_circuit_breaker_reset_date', None) != today:
             self._last_circuit_breaker_reset_date = today
             self.trading_brain.reset_daily_circuit_breaker()
+
+    def _check_session_close(self) -> None:
+        """Anti-Swap: Cierra todas las posiciones antes de la hora límite configurable para evitar costos de swap nocturnos."""
+        if not self._session_close_enabled:
+            return
+            
+        now = self._get_system_local_now()
+        today = now.date()
+        
+        if self._last_session_close_date == today:
+            return
+            
+        # Verificar si es hora de cierre de sesión
+        if now.hour == self._session_close_hour and now.minute >= self._session_close_minute:
+            self._last_session_close_date = today
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: ANTI-SWAP SESSION CLOSE - Hora límite alcanzada ({now.hour}:{now.minute:02d}). Cerrando todas las posiciones abiertas.")
+            self._close_all_open_positions()
+            self.notification_service.send_notification(
+                title="🔴 CIERRE DE SESIÓN ANTI-SWAP",
+                message=f"Todas las posiciones cerradas a las {now.hour}:{now.minute:02d} {self._session_close_timezone} para evitar costos de swap nocturnos."
+            )
+            return
+        
+        # Advertencia 30 minutos antes
+        warning_hour = self._session_close_hour
+        warning_minute = self._session_close_minute - 30
+        if warning_minute < 0:
+            warning_hour -= 1
+            warning_minute += 60
+            
+        if now.hour == warning_hour and now.minute == warning_minute:
+            print(f"{Utils.dateprint()} - TRADING DIRECTOR: AVISO - Cierre de sesión Anti-Swap en 30 minutos ({self._session_close_hour}:{self._session_close_minute:02d} {self._session_close_timezone}).")
+
+    def _initialize_daily_equity(self) -> None:
+        """Inicializa el equity de referencia para el circuit breaker diario/semanal."""
+        if self.connector is None:
+            return
+        account_info = self.connector.get_account_info()
+        if account_info and account_info.equity > 0:
+            now = self._get_system_local_now()
+            today = now.date()
+            
+            # Reset diario
+            if self._daily_start_equity <= 0 or getattr(self, '_last_daily_equity_date', None) != today:
+                self._daily_start_equity = account_info.equity
+                self._daily_consecutive_losses = 0
+                self._daily_cumulative_loss_pct = 0.0
+                self._circuit_breaker_daily_active = False
+                self._last_daily_equity_date = today
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: Equity inicial diaria: {self._daily_start_equity:.2f}")
+            
+            # Reset semanal (lunes)
+            if self._week_start_date is None or today >= self._week_start_date + timedelta(days=7):
+                self._week_start_date = today - timedelta(days=today.weekday())  # Lunes de esta semana
+                self._weekly_start_equity = account_info.equity
+                self._weekly_cumulative_loss_pct = 0.0
+                self._circuit_breaker_weekly_active = False
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: Equity inicial semanal: {self._weekly_start_equity:.2f} (semana del {self._week_start_date})")
+
+    def _check_intraday_circuit_breaker(self) -> bool:
+        """
+        Circuit Breaker Intradía:
+        - Detiene el algoritmo por el resto del día si 3 operaciones perdedoras consecutivas
+        - Detiene por la semana si pérdida acumulada llega al 5%
+        Returns True si el trading debe detenerse.
+        """
+        if self.connector is None:
+            return False
+            
+        account_info = self.connector.get_account_info()
+        if not account_info or account_info.equity <= 0:
+            return False
+            
+        self._initialize_daily_equity()
+        
+        current_equity = account_info.equity
+        
+        # Verificar circuit breaker diario por pérdidas consecutivas (TradingBrain)
+        if self.trading_brain and self.trading_brain.get_consecutive_losses() >= 3:
+            if not self._circuit_breaker_daily_active:
+                self._circuit_breaker_daily_active = True
+                consec = self.trading_brain.get_consecutive_losses()
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: 🛑 CIRCUIT BREAKER DIARIO ACTIVADO - {consec} pérdidas consecutivas (TradingBrain). Trading detenido por el resto del día.")
+                self.notification_service.send_notification(
+                    title="🛑 CIRCUIT BREAKER DIARIO",
+                    message=f"{consec} pérdidas consecutivas detectadas. Trading detenido por el resto del día. Equity: {current_equity:.2f}"
+                )
+                self._close_all_open_positions()
+            return True
+        
+        # Verificar circuit breaker diario por pérdidas consecutivas (local fallback)
+        if self._daily_consecutive_losses >= 3:
+            if not self._circuit_breaker_daily_active:
+                self._circuit_breaker_daily_active = True
+                print(f"{Utils.dateprint()} - TRADING DIRECTOR: 🛑 CIRCUIT BREAKER DIARIO ACTIVADO - {self._daily_consecutive_losses} pérdidas consecutivas. Trading detenido por el resto del día.")
+                self.notification_service.send_notification(
+                    title="🛑 CIRCUIT BREAKER DIARIO",
+                    message=f"3 pérdidas consecutivas detectadas. Trading detenido por el resto del día. Equity: {current_equity:.2f}"
+                )
+                self._close_all_open_positions()
+            return True
+            
+        # Verificar circuit breaker diario por pérdida acumulada 5%
+        if self._daily_start_equity > 0:
+            self._daily_cumulative_loss_pct = (self._daily_start_equity - current_equity) / self._daily_start_equity
+            if self._daily_cumulative_loss_pct >= 0.05:  # 5%
+                if not self._circuit_breaker_daily_active:
+                    self._circuit_breaker_daily_active = True
+                    print(f"{Utils.dateprint()} - TRADING DIRECTOR: 🛑 CIRCUIT BREAKER DIARIO ACTIVADO - Pérdida acumulada {self._daily_cumulative_loss_pct:.2%} ≥ 5%. Trading detenido por el resto del día.")
+                    self.notification_service.send_notification(
+                        title="🛑 CIRCUIT BREAKER DIARIO",
+                        message=f"Pérdida diaria acumulada: {self._daily_cumulative_loss_pct:.2%} (≥5%). Trading detenido por el resto del día. Equity: {current_equity:.2f}"
+                    )
+                    self._close_all_open_positions()
+                return True
+        
+        # Verificar circuit breaker semanal por pérdida acumulada 5%
+        if self._weekly_start_equity > 0:
+            self._weekly_cumulative_loss_pct = (self._weekly_start_equity - current_equity) / self._weekly_start_equity
+            if self._weekly_cumulative_loss_pct >= 0.05:  # 5%
+                if not self._circuit_breaker_weekly_active:
+                    self._circuit_breaker_weekly_active = True
+                    print(f"{Utils.dateprint()} - TRADING DIRECTOR: 🛑 CIRCUIT BREAKER SEMANAL ACTIVADO - Pérdida semanal acumulada {self._weekly_cumulative_loss_pct:.2%} ≥ 5%. Trading detenido por el resto de la semana.")
+                    self.notification_service.send_notification(
+                        title="🛑 CIRCUIT BREAKER SEMANAL",
+                        message=f"Pérdida semanal acumulada: {self._weekly_cumulative_loss_pct:.2%} (≥5%). Trading detenido por el resto de la semana. Equity: {current_equity:.2f}"
+                    )
+                    self._close_all_open_positions()
+                return True
+                
+        return False
+
+    def _record_trade_result(self, profit: float) -> None:
+        """Registra resultado de trade para circuit breaker."""
+        if profit < 0:
+            self._daily_consecutive_losses += 1
+        else:
+            self._daily_consecutive_losses = 0
 
     def _get_cached_market_status(self, symbol: str) -> dict:
         now_ts = time.time()
@@ -220,6 +375,12 @@ class TradingDirector():
                 self._reset_daily_circuit_breaker_if_new_day()
                 self._check_weekend_closure()
                 self._check_market_close_closure()
+                self._check_session_close()
+                
+                # Verificar circuit breaker intradía
+                if self._check_intraday_circuit_breaker():
+                    self.continue_trading = False
+                    break
                 
                 # Verificar drawdown por activo y cerrar posiciones si es necesario
                 self._check_asset_drawdown_closure()

@@ -495,3 +495,101 @@ SMART_MONEY_DEFAULT_PROPS: dict = {
     "fib_lookback": 30,
     "atr_period": 14,
 }
+
+# --- 9. BROKER SPREAD ADAPTATION CONFIGURATION ---
+# Configuración para adaptar el sistema a las diferencias de spread entre brokers
+# Esto permite normalizar las operaciones independientemente del broker utilizado
+
+BROKER_SPREAD_PROFILES: dict[str, dict] = {
+    "exness": {
+        "name": "Exness",
+        "spread_multiplier": 1.0,  # Baseline
+        "commission_per_lot": 0.0,
+        "typical_spreads": {
+            "BTCUSD": 500, "BTCUSDc": 500,
+            "ETHUSD": 80, "ETHUSDc": 80,
+            "XAUUSD": 250, "XAUUSDc": 250,
+            "EURUSD": 8, "EURUSDc": 8,
+            "GBPUSD": 12, "GBPUSDc": 12,
+            "USDJPY": 10, "USDJPYc": 10,
+            "US500": 20, "USTEC": 30, "US30": 30,
+            "UKOIL": 20,
+        }
+    },
+    "icmarkets": {
+        "name": "IC Markets",
+        "spread_multiplier": 0.8,  # Typically tighter spreads
+        "commission_per_lot": 3.5,  # $3.5 per side per lot
+        "typical_spreads": {
+            "BTCUSD": 400, "BTCUSDc": 400,
+            "ETHUSD": 60, "ETHUSDc": 60,
+            "XAUUSD": 180, "XAUUSDc": 180,
+            "EURUSD": 6, "EURUSDc": 6,
+            "GBPUSD": 10, "GBPUSDc": 10,
+            "USDJPY": 8, "USDJPYc": 8,
+            "US500": 15, "USTEC": 20, "US30": 20,
+            "UKOIL": 15,
+        }
+    },
+    "pepperstone": {
+        "name": "Pepperstone",
+        "spread_multiplier": 0.85,
+        "commission_per_lot": 3.5,
+        "typical_spreads": {
+            "BTCUSD": 450, "BTCUSDc": 450,
+            "ETHUSD": 70, "ETHUSDc": 70,
+            "XAUUSD": 200, "XAUUSDc": 200,
+            "EURUSD": 7, "EURUSDc": 7,
+            "GBPUSD": 11, "GBPUSDc": 11,
+            "USDJPY": 9, "USDJPYc": 9,
+            "US500": 18, "USTEC": 25, "US30": 25,
+            "UKOIL": 18,
+        }
+    },
+    "generic_ecn": {
+        "name": "Generic ECN",
+        "spread_multiplier": 1.0,
+        "commission_per_lot": 5.0,
+        "typical_spreads": {
+            "BTCUSD": 600, "BTCUSDc": 600,
+            "ETHUSD": 100, "ETHUSDc": 100,
+            "XAUUSD": 300, "XAUUSDc": 300,
+            "EURUSD": 10, "EURUSDc": 10,
+            "GBPUSD": 15, "GBPUSDc": 15,
+            "USDJPY": 12, "USDJPYc": 12,
+            "US500": 25, "USTEC": 35, "US30": 35,
+            "UKOIL": 25,
+        }
+    },
+}
+
+# Broker actual en uso (se puede cambiar via variable de entorno BROKER_PROFILE)
+ACTIVE_BROKER_PROFILE: str = "exness"
+
+# Configuración de adaptación de spread
+SPREAD_ADAPTATION_ENABLED: bool = True
+SPREAD_MAX_DEVIATION_PCT: float = 0.30  # Máxima desviación permitida del spread típico (30%)
+SPREAD_FILTER_ENABLED: bool = True  # Filtrar señales si spread actual > típico * multiplicador
+SPREAD_NORMALIZATION_METHOD: str = "multiplier"  # "multiplier" | "absolute" | "dynamic"
+
+# Umbrales de spread máximo por símbolo (en puntos) para validación de entrada
+MAX_SPREAD_POINTS_FOR_ENTRY: dict[str, int] = {
+    "BTCUSD": 800, "BTCUSDc": 800,
+    "ETHUSD": 150, "ETHUSDc": 150,
+    "XAUUSD": 400, "XAUUSDc": 400,
+    "EURUSD": 15, "EURUSDc": 15,
+    "GBPUSD": 20, "GBPUSDc": 20,
+    "USDJPY": 18, "USDJPYc": 18,
+    "US500": 35, "USTEC": 50, "US30": 50,
+    "UKOIL": 35,
+}
+
+# Configuración de costos totales de transacción (spread + comisión)
+TOTAL_COST_THRESHOLD_PCT: float = 0.0005  # 0.05% del precio como umbral máximo de costo total
+
+# --- 10. CONFIGURACIÓN DE CIERRE DE SESIÓN ANTI-SWAP ---
+# Cierre obligatorio de posiciones antes de hora límite para evitar costos de swap nocturnos
+SESSION_CLOSE_ENABLED: bool = True
+SESSION_CLOSE_HOUR: int = 22  # 22:00 UTC (cierre sesión NY/London overlap)
+SESSION_CLOSE_MINUTE: int = 0
+SESSION_CLOSE_TIMEZONE: str = "UTC"
