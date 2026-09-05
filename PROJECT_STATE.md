@@ -87,3 +87,41 @@
 
 **Fase 10: Integración de telemetría real, SR dinámico, bandas de Bollinger y VaR proactivo implementada (TASK-038).**
 **Fase 11: Inyección de dependencias completada. Sistema ensamblado para producción (TASK-039).**
+**Fase 11: Oráculo de derivados CoinGlass y filtrado macro-estructural de CDRI/Liquidaciones integrado para BTC/ETH (TASK-041).**
+
+**TASK-041: Oráculo de Derivados CoinGlass y Filtrado Macro-Estructural - COMPLETADO**
+- Módulo creado: `src/risk_manager/coinglass_oracle.py`
+- Clase `CoinGlassOracle` implementa ingesta de 7 métricas clave de derivados:
+  1. Open Interest (OI) y cambio 24h
+  2. Funding Rate actual y próximo
+  3. Mapa de Liquidaciones (Liquidation Map) con clusters por exchange
+  4. Promedio de Apalancamiento (Average Leverage)
+  5. Long/Short Ratio (cuentas y volumen)
+  6. Volumen 24h y cambio
+  7. Índice de Riesgo Derivado (CDRI) - compuesto ponderado 0-100
+- Sistema de Semáforo Institucional (`get_market_traffic_light()`):
+  - 🟢 Verde (CDRI < 40): Vía libre para estrategias direccionales y Squeezes
+  - 🟡 Amarillo (40 ≤ CDRI < 75): Restricción moderada, trailing stops acelerados, exposición -50%
+  - 🔴 Rojo (CDRI ≥ 75): Bloqueo total LONG, solo SHORT en zonas de mitigación de alta liquidez
+  - Apalancamiento > 30 escala el semáforo un nivel más restrictivo
+- Integración en `VaRRiskManager` (`src/risk_manager/var_risk_manager.py`):
+  - Factor de penalización CDRI: `RiskFactor_final = RiskFactor_base × (1 - CDRI/100)`
+  - Bloqueo de tamaño de lote (0.0) para señales LONG en semáforo Rojo
+  - Multiplicador combinado: VaR × Derivados para PositionSizer
+  - Reporte extendido con detalles de derivados por símbolo
+- Refinamiento señales SMC (`signal_smart_money_btc.py`, `signal_smart_money_eth.py`):
+  - Consulta zonas críticas del Liquidation Map via `get_liquidation_zones()`
+  - SL a 1 tick del bloque de órdenes institucional coincidente con cluster de liquidaciones
+  - TP expandido hacia siguiente gran piscina de liquidez (cluster opuesto o SR)
+  - Confluencia order block + liquidation cluster = máxima precisión SL
+  - Target R:R 1:50 a 1:100 vía expansión paramétrica hacia liquidez institucional
+  - `_get_dynamic_sr_levels()` + `_get_liquidation_zones()` + `_calculate_asymmetric_sl_tp()` integrados
+- Adaptación a Spread de Broker (`config.py`, `utils/broker_spread_adapter.py`):
+  - Perfiles de spread por broker: Exness (baseline), IC Markets, Pepperstone, Generic ECN
+  - `BROKER_SPREAD_PROFILES` con multiplicadores, comisiones, spreads típicos por símbolo
+  - `BrokerSpreadAdapter`: análisis de desviación, filtrado de señales, ajuste SL/TP, normalización risk_pct
+  - `MAX_SPREAD_POINTS_FOR_ENTRY` umbrales por símbolo para validación de entrada
+  - `SPREAD_ADAPTATION_ENABLED`, `SPREAD_FILTER_ENABLED`, `SPREAD_NORMALIZATION_METHOD` configurables
+  - Costo total transacción (spread + comisión) vs `TOTAL_COST_THRESHOLD_PCT` (0.05%)
+- Validación metodológica: Separación estricta Train/Test/Validation sin reoptimización iterativa sobre test set
+- Configuración vía variables de entorno: `COINGLASS_API_KEY`, `COINGLASS_USE_MOCK`, `BROKER_PROFILE`

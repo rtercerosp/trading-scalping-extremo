@@ -13,6 +13,7 @@ from notifications.notifications import NotificationService
 from risk_manager.interfaces.risk_manager_interface import IRiskManager
 from risk_manager.properties.risk_manager_properties import BaseRiskProps
 from utils.utils import Utils
+from .coinglass_oracle import CoinGlassOracle, create_coinglass_oracle_from_config, TrafficLight
 
 
 @dataclass
@@ -72,6 +73,8 @@ class VaRRiskManager(IRiskManager):
         risk_reduction_factor: float = 0.5,  # Reduce risk_pct by 50% when threshold breached
         min_risk_pct: float = 0.0025,  # Minimum risk_pct (from config)
         max_risk_pct: float = 0.02,    # Maximum risk_pct (from config)
+        coinglass_oracle: Optional[CoinGlassOracle] = None,
+        enable_derivatives_filter: bool = True,
     ):
         self.events_queue = events_queue
         self.data_provider = data_provider
@@ -89,19 +92,30 @@ class VaRRiskManager(IRiskManager):
         self.min_risk_pct = min_risk_pct
         self.max_risk_pct = max_risk_pct
         
+        # CoinGlass Oracle for derivatives filtering
+        self.coinglass_oracle = coinglass_oracle or (create_coinglass_oracle_from_config() if enable_derivatives_filter else None)
+        self.enable_derivatives_filter = enable_derivatives_filter and self.coinglass_oracle is not None
+        
         # State
         self._correlation_matrix: Optional[CorrelationMatrix] = None
         self._historical_returns: Dict[str, np.ndarray] = {}
         self._last_var_result: Optional[VaRResult] = None
         self._risk_pct_multiplier = 1.0  # Applied to PositionSizer risk_pct
+        self._derivatives_risk_multiplier = 1.0
         
     def assess_order(self, sizing_event: SizingEvent) -> float | None:
         """
-        Assess order through VaR lens.
+        Assess order through VaR lens with CoinGlass derivatives filtering.
         
         If portfolio VaR exceeds threshold, reduce the position size by
         adjusting the effective risk_pct before passing to position sizer.
+        
+        Applies CDRI-based penalty factor: RiskFactor_final = RiskFactor_base * (1 - CDRI/100)
+        Blocks LONG entries when traffic light is RED.
         """
+        symbol = getattr(sizing_event, 'symbol', None)
+        signal_direction = getattr(sizing_event, 'signal', None)
+        
         # Calculate current portfolio VaR
         var_result = self.calculate_portfolio_var()
         self._last_var_result = var_result
@@ -115,9 +129,40 @@ class VaRRiskManager(IRiskManager):
             # Gradually restore risk multiplier (with hysteresis)
             self._risk_pct_multiplier = min(1.0, self._risk_pct_multiplier * 1.05)
         
-        # Apply risk reduction to sizing event
+        # Apply CoinGlass derivatives filter
+        if self.enable_derivatives_filter and self.coinglass_oracle and symbol:
+            try:
+                # Get CDRI-based risk multiplier: (1 - CDRI/100)
+                derivatives_multiplier = self.coinglass_oracle.get_risk_multiplier(symbol)
+                self._derivatives_risk_multiplier = derivatives_multiplier
+                
+                # Check traffic light for LONG blocking
+                light, details = self.coinglass_oracle.get_market_traffic_light(symbol)
+                
+                if light == TrafficLight.RED and signal_direction == "BUY":
+                    # Block LONG entries completely in RED
+                    print(f"{Utils.dateprint()} - VaR Risk Manager: LONG BLOCKED for {symbol} - CDRI={details['cdri']:.1f} (RED light)")
+                    return 0.0
+                
+                # Apply position multiplier from traffic light
+                position_multiplier = details.get("position_multiplier", 1.0)
+                
+                # Log derivatives filter status
+                print(f"{Utils.dateprint()} - VaR Risk Manager: Derivatives filter for {symbol} - "
+                      f"CDRI={details['cdri']:.1f}, Light={light.value}, "
+                      f"RiskMult={derivatives_multiplier:.3f}, PosMult={position_multiplier:.2f}")
+                
+            except Exception as e:
+                print(f"{Utils.dateprint()} - VaR Risk Manager: Derivatives filter error: {e}")
+                self._derivatives_risk_multiplier = 1.0
+        else:
+            self._derivatives_risk_multiplier = 1.0
+        
+        # Apply combined risk reduction to sizing event
         if hasattr(sizing_event, 'risk_pct_override') and sizing_event.risk_pct_override > 0:
-            adjusted_risk = sizing_event.risk_pct_override * self._risk_pct_multiplier
+            # RiskFactor_final = RiskFactor_base * (1 - CDRI/100) * VaR_multiplier
+            combined_multiplier = self._risk_pct_multiplier * self._derivatives_risk_multiplier
+            adjusted_risk = sizing_event.risk_pct_override * combined_multiplier
             adjusted_risk = max(self.min_risk_pct, min(self.max_risk_pct, adjusted_risk))
             sizing_event.risk_pct_override = adjusted_risk
         
@@ -393,7 +438,7 @@ class VaRRiskManager(IRiskManager):
             return {}
         
         vr = self._last_var_result
-        return {
+        report = {
             "var_95": vr.var_95,
             "var_99": vr.var_99,
             "cvar_95": vr.cvar_95,
@@ -405,18 +450,38 @@ class VaRRiskManager(IRiskManager):
             "correlated_exposure_pct": vr.correlated_exposure / vr.portfolio_value if vr.portfolio_value > 0 else 0,
             "threshold_breached": vr.threshold_breached,
             "risk_pct_multiplier": self._risk_pct_multiplier,
+            "derivatives_risk_multiplier": self._derivatives_risk_multiplier,
+            "combined_risk_multiplier": self._risk_pct_multiplier * self._derivatives_risk_multiplier,
             "max_var_pct": self.max_portfolio_var_pct,
             "max_correlated_exposure_pct": self.max_correlated_exposure_pct,
             "timestamp": vr.timestamp,
             "correlation_matrix_age": (
                 (pd.Timestamp.now() - pd.Timestamp(self._correlation_matrix.last_updated)).total_seconds() / 3600
                 if self._correlation_matrix else None
-            )
+            ),
+            "derivatives_filter_enabled": self.enable_derivatives_filter,
         }
+        
+        if self.enable_derivatives_filter and self.coinglass_oracle:
+            try:
+                symbols = [pos.symbol for pos in self.portfolio.get_strategy_open_positions()]
+                derivatives_details = {}
+                for sym in symbols:
+                    light, details = self.coinglass_oracle.get_market_traffic_light(sym)
+                    derivatives_details[sym] = details
+                report["derivatives_details"] = derivatives_details
+            except Exception:
+                pass
+        
+        return report
     
     def get_risk_pct_multiplier(self) -> float:
         """Get current risk_pct multiplier (for PositionSizer integration)."""
-        return self._risk_pct_multiplier
+        return self._risk_pct_multiplier * self._derivatives_risk_multiplier
+    
+    def get_derivatives_multiplier(self) -> float:
+        """Get current derivatives filter multiplier."""
+        return self._derivatives_risk_multiplier
     
     def force_risk_reduction(self, factor: float = None) -> None:
         """Manually force risk reduction (e.g., from external risk signal)."""
