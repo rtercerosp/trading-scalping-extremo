@@ -1,5 +1,5 @@
 # Project State
-**Fase Actual:** Fase 12: Auditoría de riesgo, cierre nocturno Anti-Swap y regla del 1% implementada (TASK-043).
+**Fase Actual:** Fase 12: Corrección de telemetría estática y cálculo dinámico de Win Rate en tiempo real (TASK-044).
 
 **TASK-028: Implementación de Asignación Dinámica de Capital (Kelly Criterion) - COMPLETADO**
 - Módulo creado: `position_sizer/position_sizers/kelly_criterion_sizer.py` (raíz del proyecto)
@@ -163,7 +163,36 @@
    - Mínimo ATR points (BTC: 200, ETH: 150) para filtrar micro-volatilidad
 
 4. **Configuración Anti-Swap en `config.py`:**
-   - `SESSION_CLOSE_ENABLED = True`
-   - `SESSION_CLOSE_HOUR = 22` (UTC)
-   - `SESSION_CLOSE_MINUTE = 0`
-   - `SESSION_CLOSE_TIMEZONE = "UTC"`
+    - `SESSION_CLOSE_ENABLED = True`
+    - `SESSION_CLOSE_HOUR = 22` (UTC)
+    - `SESSION_CLOSE_MINUTE = 0`
+    - `SESSION_CLOSE_TIMEZONE = "UTC"`
+
+**TASK-044: Auditoría y Purga de Métricas Estáticas en el Evaluador - COMPLETADO**
+
+1. **Tracking de Sesión en Evaluador (`brain/trading_method_evaluator.py`):**
+   - Añadido `_session_start_time` y `_last_known_closed_count` para rastrear inicio de sesión y trades nuevos
+   - Método `reset_session()` llamado automáticamente al inicio de cada día vía `TradingBrain.reset_daily_circuit_breaker()`
+   - Método `_get_current_session_trades()` filtra trades por timestamp ≥ inicio de sesión actual
+   - Método `_has_new_closed_trades()` detecta si hay trades cerrados nuevos desde última evaluación
+
+2. **Cálculo Dinámico de Métricas (Win Rate, Profit Factor, Expectancy):**
+   - `compute_all_metrics(current_session_only=True)` recalcula métricas solo con trades de la sesión actual
+   - `score_method(current_session_only=True)` puntúa basado en sesión actual, no en histórico acumulado
+   - Si no hay trades cerrados en la sesión: retorna `{"score": 0.0, "grade": "N/A", "reason": "Sin trades cerrados en la sesión actual"}` en lugar de reciclar métricas antiguas
+
+3. **Guardado Inteligente de Mediciones (`save_measurement`):**
+   - Verifica `_has_new_closed_trades()` antes de recalcular y guardar
+   - **Si NO hay trades nuevos**: Guarda medición con `score=None, grade="N/A", no_new_trades=True` y mensaje explícito: "Sin nuevos trades cerrados desde la última evaluación"
+   - **Si HAY trades nuevos**: Calcula métricas de sesión actual y guarda con `Trades=X` en el log
+   - Elimina reciclaje de métricas estáticas con timestamps falsamente actualizados
+
+4. **Reporte Institucional Dual (`get_institutional_report`):**
+   - **Sección "SESIÓN ACTUAL"**: Métricas recalculadas en tiempo real desde trades de la sesión (timestamp ≥ session_start)
+   - **Sección "HISTÓRICO COMPLETO"**: Métricas de referencia con todos los trades históricos
+   - Diferenciación visual clara en consola y logs
+   - Historial de mediciones marca entradas "SIN NUEVOS TRADES" cuando no hay actividad
+
+5. **Integración en TradingBrain (`brain/trading_brain.py`):**
+   - `reset_daily_circuit_breaker()` ahora llama a `evaluator.reset_session()` al detectar nuevo día
+   - Sincronización automática: nuevo día = nueva sesión de métricas = Win Rate/Profit Factor recalculados desde cero

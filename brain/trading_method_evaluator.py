@@ -147,10 +147,16 @@ class InstitutionalEvaluator:
         self.method_version = method_version
         self.metrics_by_symbol: Dict[str, TradeMetrics] = {}
         self.global_metrics = TradeMetrics("GLOBAL")
+        self.global_metrics_current_session = TradeMetrics("GLOBAL_CURRENT")
         self.versions_file = "trading_method_versions.json"
         self.measurements_file = "trading_method_measurements.json"
         self._load_versions()
         self._load_measurements()
+
+        # Session tracking
+        self._session_start_time: Optional[datetime] = None
+        self._last_known_closed_count: int = 0
+        self._initialize_session_start()
 
     def _load_versions(self) -> None:
         if os.path.exists(self.versions_file):
@@ -188,6 +194,58 @@ class InstitutionalEvaluator:
         except Exception as e:
             logger.error("EVALUATOR: Error guardando mediciones: %s", e, exc_info=True)
 
+    def _initialize_session_start(self) -> None:
+        """Initialize session start time to now (or load from config/env)."""
+        self._session_start_time = datetime.utcnow()
+        self._last_known_closed_count = len([t for t in self.trade_history if t.get("exit_reason") != "OPEN"])
+
+    def reset_session(self) -> None:
+        """Call this at the start of a new trading session/day."""
+        self._initialize_session_start()
+
+    def _get_current_session_trades(self) -> List[dict]:
+        """Get only trades closed in the current session."""
+        if not self._session_start_time:
+            self._initialize_session_start()
+        
+        session_trades = []
+        for trade in self.trade_history:
+            if trade.get("exit_reason") == "OPEN":
+                continue
+            # Check if trade has timestamp and is after session start
+            trade_timestamp = trade.get("timestamp")
+            if trade_timestamp:
+                try:
+                    trade_dt = datetime.fromisoformat(trade_timestamp.replace('Z', '+00:00'))
+                    if trade_dt >= self._session_start_time:
+                        session_trades.append(trade)
+                except (ValueError, TypeError):
+                    # If timestamp parsing fails, include it (backwards compatibility)
+                    session_trades.append(trade)
+            else:
+                # No timestamp - include for backwards compatibility
+                session_trades.append(trade)
+        
+        return session_trades
+
+    def _get_new_closed_trades(self) -> List[dict]:
+        """Get only newly closed trades since last check."""
+        all_closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+        current_closed_count = len(all_closed)
+        
+        if current_closed_count <= self._last_known_closed_count:
+            return []
+        
+        # Get the new trades (assuming trade_history is ordered chronologically)
+        new_trades = all_closed[self._last_known_closed_count:]
+        self._last_known_closed_count = current_closed_count
+        return new_trades
+
+    def _has_new_closed_trades(self) -> bool:
+        """Check if there are new closed trades since last evaluation."""
+        all_closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+        return len(all_closed) > self._last_known_closed_count
+
     def register_version(self, version_id: str, name: str, config: dict, description: str = "", set_active: bool = False) -> None:
         version = MethodVersion(version_id, name, config, description)
         self.versions[version_id] = {
@@ -222,14 +280,19 @@ class InstitutionalEvaluator:
     def _normalize_trade_history(self) -> None:
         self.trade_history = [t.to_dict() if hasattr(t, "to_dict") else t for t in self.trade_history]
 
-    def compute_all_metrics(self, current_symbols: Optional[List[str]] = None) -> Dict[str, TradeMetrics]:
+    def compute_all_metrics(self, current_symbols: Optional[List[str]] = None, current_session_only: bool = False) -> Dict[str, TradeMetrics]:
         self._normalize_trade_history()
         self.metrics_by_symbol.clear()
         normalized_current_symbols = {normalize_symbol(s) for s in current_symbols} if current_symbols else set()
+        
+        # Get trades based on mode
+        if current_session_only:
+            source_trades = self._get_current_session_trades()
+        else:
+            source_trades = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+        
         trades_by_symbol: Dict[str, List[dict]] = {}
-        for trade in self.trade_history:
-            if trade.get("exit_reason") == "OPEN":
-                continue
+        for trade in source_trades:
             symbol = normalize_symbol(trade.get("symbol", "UNKNOWN"))
             if normalized_current_symbols and symbol not in normalized_current_symbols:
                 continue
@@ -240,25 +303,36 @@ class InstitutionalEvaluator:
             metrics.update_from_trades(trades)
             self.metrics_by_symbol[symbol] = metrics
 
-        all_closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+        all_closed = source_trades
         if normalized_current_symbols:
             all_closed = [t for t in all_closed if normalize_symbol(t.get("symbol", "")) in normalized_current_symbols]
-        self.global_metrics = TradeMetrics("GLOBAL")
-        self.global_metrics.update_from_trades(all_closed)
+        
+        if current_session_only:
+            self.global_metrics_current_session = TradeMetrics("GLOBAL_CURRENT")
+            self.global_metrics_current_session.update_from_trades(all_closed)
+        else:
+            self.global_metrics = TradeMetrics("GLOBAL")
+            self.global_metrics.update_from_trades(all_closed)
 
         return self.metrics_by_symbol
 
-    def score_method(self) -> dict:
+    def score_method(self, current_session_only: bool = True) -> dict:
         self._normalize_trade_history()
         if not self.trade_history:
             return {"score": 0.0, "grade": "N/A", "reason": "Sin trades"}
 
-        closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
-        if not closed:
-            return {"score": 0.0, "grade": "N/A", "reason": "Sin trades cerrados"}
+        # Use current session trades for scoring
+        if current_session_only:
+            closed = self._get_current_session_trades()
+            if not closed:
+                return {"score": 0.0, "grade": "N/A", "reason": "Sin trades cerrados en la sesión actual"}
+        else:
+            closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+            if not closed:
+                return {"score": 0.0, "grade": "N/A", "reason": "Sin trades cerrados"}
 
-        self.compute_all_metrics()
-        m = self.global_metrics
+        self.compute_all_metrics(current_session_only=current_session_only)
+        m = self.global_metrics_current_session if current_session_only else self.global_metrics
 
         score = 0.0
         score += m.win_rate * 40
@@ -298,11 +372,41 @@ class InstitutionalEvaluator:
             "max_consecutive_losses": m.max_consecutive_losses,
             "total_trades": m.total_trades,
             "reason": f"Win rate {m.win_rate:.1%}, PF {m.profit_factor:.2f}, Exp {m.expectancy:.4f}",
+            "current_session_only": current_session_only,
         }
 
     def save_measurement(self, label: str, extra: dict = None) -> None:
         self._normalize_trade_history()
-        score_data = self.score_method()
+        
+        # Check if there are new closed trades since last evaluation
+        if not self._has_new_closed_trades():
+            # No new trades - indicate this explicitly
+            no_new_data_measurement = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "method_version": self.method_version,
+                "active_version": self.get_active_version().get("version_id") if self.get_active_version() else None,
+                "label": label,
+                "score": None,
+                "grade": "N/A",
+                "win_rate": None,
+                "profit_factor": None,
+                "expectancy": None,
+                "sharpe_ratio": None,
+                "max_drawdown": None,
+                "max_consecutive_losses": None,
+                "total_trades": 0,
+                "reason": "Sin nuevos trades cerrados desde la última evaluación",
+                "no_new_trades": True,
+            }
+            if extra:
+                no_new_data_measurement.update(extra)
+            self.measurements.setdefault(self.method_version, []).append(no_new_data_measurement)
+            self._save_measurements()
+            print(f"{Utils.dateprint()} - EVALUATOR: Medición [{label}] - Sin nuevos trades cerrados. No se recalculan métricas.")
+            return
+        
+        # There are new trades - compute metrics from current session
+        score_data = self.score_method(current_session_only=True)
         measurement = {
             "timestamp": datetime.utcnow().isoformat(),
             "method_version": self.method_version,
@@ -323,7 +427,7 @@ class InstitutionalEvaluator:
             measurement.update(extra)
         self.measurements.setdefault(self.method_version, []).append(measurement)
         self._save_measurements()
-        print(f"{Utils.dateprint()} - EVALUATOR: Medición guardada [{label}] Score={score_data.get('score')} Grade={score_data.get('grade')}")
+        print(f"{Utils.dateprint()} - EVALUATOR: Medición guardada [{label}] Score={score_data.get('score')} Grade={score_data.get('grade')} Trades={score_data.get('total_trades')}")
 
     def get_institutional_report(self, current_symbols: Optional[List[str]] = None) -> str:
         self._normalize_trade_history()
@@ -331,32 +435,61 @@ class InstitutionalEvaluator:
         if not self.trade_history:
             return "Sin datos para evaluación institucional."
 
-        score_data = self.score_method()
-        closed = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
+        # Get both current session and historical metrics
+        score_data_current = self.score_method(current_session_only=True)
+        score_data_historical = self.score_method(current_session_only=False)
+        
+        # Compute metrics for both views
+        self.compute_all_metrics(current_symbols=current_symbols, current_session_only=True)
+        current_session_metrics = self.metrics_by_symbol.copy()
+        self.compute_all_metrics(current_symbols=current_symbols, current_session_only=False)
+        historical_metrics = self.metrics_by_symbol.copy()
+
+        closed_current = self._get_current_session_trades()
+        closed_all = [t for t in self.trade_history if t.get("exit_reason") != "OPEN"]
         open_trades = [t for t in self.trade_history if t.get("exit_reason") == "OPEN"]
 
         report = f"\n{'='*60}\n"
         report += f"EVALUACIÓN INSTITUCIONAL - {self.method_version}\n"
         report += f"{'='*60}\n\n"
 
-        report += f"PUNTAJE GENERAL: {score_data.get('score')}/100 - {score_data.get('grade')}\n"
-        report += f"Justificación: {score_data.get('reason')}\n\n"
+        # Current Session Metrics (Primary)
+        report += f"--- SESIÓN ACTUAL (desde {self._session_start_time.strftime('%H:%M:%S UTC') if self._session_start_time else 'N/A'}) ---\n"
+        if score_data_current.get("total_trades", 0) > 0:
+            report += f"PUNTAJE: {score_data_current.get('score')}/100 - {score_data_current.get('grade')}\n"
+            report += f"Justificación: {score_data_current.get('reason')}\n\n"
+            report += f"Trades cerrados: {score_data_current.get('total_trades')}\n"
+            report += f"Win Rate: {score_data_current.get('win_rate', 0):.2%}\n"
+            report += f"Profit Factor: {score_data_current.get('profit_factor', 0):.2f}\n"
+            report += f"Expectancy: {score_data_current.get('expectancy', 0):.4f}\n"
+            report += f"Sharpe Ratio: {score_data_current.get('sharpe_ratio', 0):.2f}\n"
+            report += f"Max Drawdown: {score_data_current.get('max_drawdown', 0):.2f}\n"
+            report += f"Max Consecutive Losses: {score_data_current.get('max_consecutive_losses')}\n\n"
+        else:
+            report += f"Sin trades cerrados en la sesión actual.\n\n"
 
-        report += f"--- Métricas Globales ---\n"
-        report += f"Trades cerrados: {score_data.get('total_trades')}\n"
-        report += f"Win Rate: {score_data.get('win_rate', 0):.2%}\n"
-        report += f"Profit Factor: {score_data.get('profit_factor', 0):.2f}\n"
-        report += f"Expectancy: {score_data.get('expectancy', 0):.4f}\n"
-        report += f"Sharpe Ratio: {score_data.get('sharpe_ratio', 0):.2f}\n"
-        report += f"Max Drawdown: {score_data.get('max_drawdown', 0):.2f}\n"
-        report += f"Max Consecutive Losses: {score_data.get('max_consecutive_losses')}\n\n"
+        # Historical Metrics (Reference)
+        report += f"--- HISTÓRICO COMPLETO (Referencia) ---\n"
+        if score_data_historical.get("total_trades", 0) > 0:
+            report += f"PUNTAJE: {score_data_historical.get('score')}/100 - {score_data_historical.get('grade')}\n"
+            report += f"Justificación: {score_data_historical.get('reason')}\n\n"
+            report += f"Trades cerrados: {score_data_historical.get('total_trades')}\n"
+            report += f"Win Rate: {score_data_historical.get('win_rate', 0):.2%}\n"
+            report += f"Profit Factor: {score_data_historical.get('profit_factor', 0):.2f}\n"
+            report += f"Expectancy: {score_data_historical.get('expectancy', 0):.4f}\n"
+            report += f"Sharpe Ratio: {score_data_historical.get('sharpe_ratio', 0):.2f}\n"
+            report += f"Max Drawdown: {score_data_historical.get('max_drawdown', 0):.2f}\n"
+            report += f"Max Consecutive Losses: {score_data_historical.get('max_consecutive_losses')}\n\n"
+        else:
+            report += f"Sin trades cerrados en histórico.\n\n"
 
         if open_trades:
             report += f"Trades abiertos: {len(open_trades)}\n\n"
 
-        if self.metrics_by_symbol:
-            report += f"--- Rendimiento por Activo ---\n"
-            for symbol, metrics in sorted(self.metrics_by_symbol.items()):
+        # Per-asset breakdown for current session
+        if current_session_metrics:
+            report += f"--- Rendimiento por Activo (Sesión Actual) ---\n"
+            for symbol, metrics in sorted(current_session_metrics.items()):
                 if normalized_current_symbols and symbol not in normalized_current_symbols:
                     continue
                 report += (
@@ -385,14 +518,19 @@ class InstitutionalEvaluator:
                 score = m.get("score")
                 grade = m.get("grade")
                 win_rate = m.get("win_rate") or 0
-                report += (
-                    f"[{m.get('timestamp')}] {m.get('label')}: "
-                    f"Score={score}, Grade={grade}, "
-                    f"WR={win_rate:.1%}\n"
-                )
+                no_new = m.get("no_new_trades", False)
+                if no_new:
+                    report += f"[{m.get('timestamp')}] {m.get('label')}: SIN NUEVOS TRADES\n"
+                else:
+                    report += (
+                        f"[{m.get('timestamp')}] {m.get('label')}: "
+                        f"Score={score}, Grade={grade}, "
+                        f"WR={win_rate:.1%}\n"
+                    )
             report += "\n"
 
         report += f"{'='*60}\n"
+        return report
         return report
 
     def get_best_version(self) -> Optional[dict]:

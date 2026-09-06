@@ -749,6 +749,11 @@ class TradingBrain:
         self._boost_cache.clear()
         account_info = self.connector.get_account_info() if self.connector else None
         self._daily_start_balance = account_info.balance if account_info else 0.0
+        
+        # Reset evaluator session for new day
+        if hasattr(self, 'evaluator') and self.evaluator:
+            self.evaluator.reset_session()
+            print(f"{Utils.dateprint()} - BRAIN: Evaluator session reset for new trading day")
 
     def update_research_market_data(self, symbol: str, mfe_points: float, mae_points: float, equity: float) -> None:
         if getattr(self, "research_db", None) is None:
