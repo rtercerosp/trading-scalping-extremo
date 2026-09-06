@@ -541,10 +541,13 @@ class InstitutionalEvaluator:
                 continue
             measurements = self.measurements.get(vid, [])
             if measurements:
-                avg_score = sum(m.get("score", 0) for m in measurements) / len(measurements)
-                if avg_score > best_score:
-                    best_score = avg_score
-                    best_version = vdata
+                # Filter out None scores
+                valid_scores = [m.get("score") for m in measurements if m.get("score") is not None]
+                if valid_scores:
+                    avg_score = sum(valid_scores) / len(valid_scores)
+                    if avg_score > best_score:
+                        best_score = avg_score
+                        best_version = vdata
         return best_version
 
     def recommend_version_switch(self) -> Optional[str]:
@@ -554,8 +557,20 @@ class InstitutionalEvaluator:
             return None
         if best.get("version_id") == active.get("version_id"):
             return None
-        best_avg = sum(m.get("score", 0) for m in self.measurements.get(best.get("version_id", ""), [])) / max(1, len(self.measurements.get(best.get("version_id", ""), [])))
-        active_avg = sum(m.get("score", 0) for m in self.measurements.get(active.get("version_id", ""), [])) / max(1, len(self.measurements.get(active.get("version_id", ""), [])))
+        
+        # Filter out None scores for both versions
+        best_measurements = self.measurements.get(best.get("version_id", ""), [])
+        active_measurements = self.measurements.get(active.get("version_id", ""), [])
+        
+        best_valid_scores = [m.get("score") for m in best_measurements if m.get("score") is not None]
+        active_valid_scores = [m.get("score") for m in active_measurements if m.get("score") is not None]
+        
+        if not best_valid_scores or not active_valid_scores:
+            return None
+            
+        best_avg = sum(best_valid_scores) / len(best_valid_scores)
+        active_avg = sum(active_valid_scores) / len(active_valid_scores)
+        
         if active_avg >= best_avg:
             return None
         if best_avg > active_avg + 8:
